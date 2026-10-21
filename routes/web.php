@@ -64,6 +64,9 @@ Route::middleware(['auth'])->group(function () {
     // Email Forwarding Settings (Penerusan Email)
     Route::get('/settings/forwarding', [WebmailController::class, 'showForwarding'])->name('webmail.forwarding');
     Route::post('/settings/forwarding', [WebmailController::class, 'updateForwarding'])->name('webmail.forwarding.update');
+
+    // Session Security & Inactivity Keep-Alive
+    Route::post('/session/keep-alive', [AuthController::class, 'keepAlive'])->name('session.keep-alive');
 });
 
 // Admin Web Console Routes (Protected by Auth & Admin Role)

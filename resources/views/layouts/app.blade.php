@@ -316,6 +316,9 @@
     <!-- Unified Alert & Confirm Modal (Direct child of body, zero margin leakage) -->
     @include('partials.alert-modal')
 
+    <!-- Universal Session Timeout Warning & Countdown Modal -->
+    @include('partials.session-timeout-modal')
+
     <!-- Init Lucide Icons & Twemoji Universal Emojis -->
     <script>
         function renderTwemoji(root) {

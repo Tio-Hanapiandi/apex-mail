@@ -241,7 +241,12 @@
             @endphp
             showAppModal('success', {!! json_encode($mTitle) !!}, {!! json_encode($mText) !!});
         @elseif(session('error'))
-            showAppModal('error', 'Terjadi Kesalahan', {!! json_encode(session('error')) !!});
+            @php
+                $eMsg = session('error');
+                $isSessionMsg = str_contains(strtolower($eMsg), 'sesi');
+                $eTitle = $isSessionMsg ? 'Pemberitahuan Sesi' : 'Terjadi Kesalahan';
+            @endphp
+            showAppModal('error', {!! json_encode($eTitle) !!}, {!! json_encode($eMsg) !!});
         @elseif(session('warning'))
             showAppModal('warning', 'Peringatan', {!! json_encode(session('warning')) !!});
         @elseif(isset($errors) && $errors->any())

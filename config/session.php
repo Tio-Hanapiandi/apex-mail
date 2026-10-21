@@ -31,9 +31,23 @@ return [
     |
     */
 
-    'lifetime' => env('SESSION_LIFETIME', 120),
+    'lifetime' => (int) env('SESSION_LIFETIME', 15),
 
     'expire_on_close' => false,
+
+    /*
+    |--------------------------------------------------------------------------
+    | Advanced Session Security Policies
+    |--------------------------------------------------------------------------
+    |
+    | idle_timeout: Inactivity window in seconds before session is destroyed (15m = 900s).
+    | max_absolute_lifetime: Maximum session duration in seconds regardless of activity (8h = 28800s).
+    | warning_threshold: Seconds before expiration to display countdown warning popup (60s).
+    |
+    */
+    'idle_timeout' => (int) env('SESSION_IDLE_TIMEOUT', 15 * 60),
+    'max_absolute_lifetime' => (int) env('SESSION_MAX_ABSOLUTE_LIFETIME', 8 * 3600),
+    'warning_threshold' => (int) env('SESSION_WARNING_THRESHOLD', 60),
 
     /*
     |--------------------------------------------------------------------------
@@ -168,7 +182,7 @@ return [
     |
     */
 
-    'secure' => env('SESSION_SECURE_COOKIE'),
+    'secure' => env('SESSION_SECURE_COOKIE', true),
 
     /*
     |--------------------------------------------------------------------------
@@ -196,7 +210,7 @@ return [
     |
     */
 
-    'same_site' => 'lax',
+    'same_site' => env('SESSION_SAME_SITE', 'strict'),
 
     /*
     |--------------------------------------------------------------------------

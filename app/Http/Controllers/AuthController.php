@@ -112,6 +112,9 @@ class AuthController extends Controller
             Auth::login($account, $remember);
             $request->session()->regenerate();
             Session::put('active_account_id', $account->id);
+            Session::put('session_bound_ip', $request->ip());
+            Session::put('session_login_time', now()->timestamp);
+            Session::put('session_last_activity', now()->timestamp);
 
             // Record login history for known device
             $this->loginSecurity->recordKnownDeviceLogin($account, $request);
@@ -135,6 +138,29 @@ class AuthController extends Controller
         $request->session()->regenerateToken();
 
         return redirect()->route('login')->with('success', 'Anda telah berhasil keluar dari akun email.');
+    }
+
+    /**
+     * Extend active session upon user activity / countdown confirmation.
+     */
+    public function keepAlive(Request $request)
+    {
+        $now = now()->timestamp;
+        $request->session()->put('session_last_activity', $now);
+
+        $loginTime = (int) $request->session()->get('session_login_time', $now);
+        $maxAbsolute = (int) config('session.max_absolute_lifetime', 8 * 3600);
+        $absoluteRemaining = max(0, $maxAbsolute - ($now - $loginTime));
+        $idleTimeout = (int) config('session.idle_timeout', 15 * 60);
+        $warningThreshold = (int) config('session.warning_threshold', 60);
+
+        return response()->json([
+            'success' => true,
+            'idle_timeout_seconds' => $idleTimeout,
+            'warning_threshold_seconds' => $warningThreshold,
+            'absolute_remaining_seconds' => $absoluteRemaining,
+            'message' => 'Sesi berhasil diperpanjang.',
+        ]);
     }
 
     /**
@@ -374,6 +400,9 @@ class AuthController extends Controller
         Auth::login($account, $remember);
         $request->session()->regenerate();
         Session::put('active_account_id', $account->id);
+        Session::put('session_bound_ip', $request->ip());
+        Session::put('session_login_time', now()->timestamp);
+        Session::put('session_last_activity', now()->timestamp);
 
         $this->loginSecurity->recordKnownDeviceLogin($account, $request);
 
@@ -475,6 +504,9 @@ class AuthController extends Controller
         Auth::login($account, $remember);
         $request->session()->regenerate();
         Session::put('active_account_id', $account->id);
+        Session::put('session_bound_ip', $request->ip());
+        Session::put('session_login_time', now()->timestamp);
+        Session::put('session_last_activity', now()->timestamp);
 
         if ($isAdmin) {
             return redirect()->intended(route('admin.dashboard'))

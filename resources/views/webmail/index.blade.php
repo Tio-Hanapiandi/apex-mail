@@ -1623,7 +1623,8 @@
         fetch(`{{ route('webmail.check-updates') }}?${params.toString()}`, {
             headers: {
                 'X-Requested-With': 'XMLHttpRequest',
-                'Accept': 'application/json'
+                'Accept': 'application/json',
+                'X-Passive-Sync': '1'
             },
             signal: autoSyncController.signal
         })
