@@ -383,6 +383,7 @@ class MailRelayService
      * @param SmtpRelay|null $relay
      * @param array|string $cc List of CC recipients
      * @param array|string $bcc List of BCC recipients
+     * @param array|string|null $customReplyTo Optional custom reply-to address
      * @return array
      */
     public function sendEmail(
@@ -394,7 +395,8 @@ class MailRelayService
         array $attachments = [],
         ?SmtpRelay $relay = null,
         $cc = [],
-        $bcc = []
+        $bcc = [],
+        $customReplyTo = null
     ): array {
         $relay = $relay ?? SmtpRelay::getActiveRelay($sender->domain_id);
 
@@ -420,10 +422,17 @@ class MailRelayService
 
             $message = (new SymfonyEmail())
                 ->from(new Address($fromEmail, $fromName))
-                ->replyTo(new Address($fromEmail, $fromName))
                 ->subject($subject)
                 ->html($bodyHtml)
                 ->text($bodyText);
+
+            if ($customReplyTo && is_array($customReplyTo) && !empty($customReplyTo['email'])) {
+                $message->replyTo(new Address($customReplyTo['email'], $customReplyTo['name'] ?? ''));
+            } elseif ($customReplyTo && is_string($customReplyTo)) {
+                $message->replyTo(new Address($customReplyTo));
+            } else {
+                $message->replyTo(new Address($fromEmail, $fromName));
+            }
 
             foreach ($parsedTo as $item) {
                 $message->addTo(empty($item['name']) ? new Address($item['email']) : new Address($item['email'], $item['name']));

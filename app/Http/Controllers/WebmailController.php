@@ -147,6 +147,22 @@ class WebmailController extends Controller
             }
         }
 
+        // Include existing attachments forwarded from an email
+        if ($request->has('forward_attachment_ids') && is_array($request->input('forward_attachment_ids'))) {
+            $existingAtts = EmailAttachment::whereIn('id', $request->input('forward_attachment_ids'))->get();
+            foreach ($existingAtts as $ea) {
+                $diskPath = storage_path('app/' . $ea->storage_path);
+                if (file_exists($diskPath)) {
+                    $attachments[] = [
+                        'name' => $ea->filename,
+                        'mime' => $ea->content_type,
+                        'size' => $ea->size_bytes,
+                        'path' => $diskPath,
+                    ];
+                }
+            }
+        }
+
         $result = $this->relayService->sendEmail(
             $sender,
             $recipients,
@@ -391,5 +407,64 @@ class WebmailController extends Controller
         }
 
         abort(404, 'Berkas lampiran tidak ditemukan.');
+    }
+
+    /**
+     * Show Email Forwarding settings page.
+     */
+    public function showForwarding()
+    {
+        $user = $this->getActiveAccount();
+        return view('webmail.forwarding-settings', compact('user'));
+    }
+
+    /**
+     * Update Email Forwarding settings.
+     */
+    public function updateForwarding(Request $request)
+    {
+        $user = $this->getActiveAccount();
+
+        $request->validate([
+            'forward_active' => 'nullable',
+            'forward_destination' => 'nullable|string|max:500',
+            'forward_keep_copy' => 'nullable',
+        ]);
+
+        $isActive = $request->boolean('forward_active');
+        $destination = trim($request->input('forward_destination') ?? '');
+        $keepCopy = $request->boolean('forward_keep_copy', true);
+
+        if ($isActive) {
+            if (empty($destination)) {
+                return redirect()->back()
+                    ->withInput()
+                    ->with('warning', 'Silakan masukkan setidaknya satu alamat email tujuan penerusan.');
+            }
+
+            $parsed = $this->relayService->parseRecipients($destination);
+            if (empty($parsed)) {
+                return redirect()->back()
+                    ->withInput()
+                    ->with('warning', 'Format alamat email tujuan penerusan tidak valid.');
+            }
+
+            // Loop prevention: ensure destination does not contain the user's own email
+            foreach ($parsed as $item) {
+                if (strtolower($item['email']) === strtolower($user->email)) {
+                    return redirect()->back()
+                        ->withInput()
+                        ->with('warning', 'Alamat email penerusan tidak boleh sama dengan alamat kotak surat Anda sendiri untuk mencegah loop perputaran email.');
+                }
+            }
+        }
+
+        $user->forward_active = $isActive;
+        $user->forward_destination = $destination ?: null;
+        $user->forward_keep_copy = $keepCopy;
+        $user->save();
+
+        return redirect()->route('webmail.forwarding')
+            ->with('success', 'Pengaturan penerusan email (email forwarding) berhasil diperbarui.');
     }
 }

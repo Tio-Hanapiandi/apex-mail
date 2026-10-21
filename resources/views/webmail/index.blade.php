@@ -160,6 +160,21 @@
                 </div>
             </div>
 
+            <!-- Pintasan Penerusan Email -->
+            <a href="{{ route('webmail.forwarding') }}" 
+               class="flex items-center justify-between p-2 rounded-xl text-xs {{ optional($currentAccount)->forward_active ? 'bg-indigo-50/80 text-indigo-700 border border-indigo-200/80' : 'text-slate-600 hover:bg-slate-100/70 border border-transparent' }} transition-colors"
+               title="Buka pengaturan penerusan email otomatis">
+                <span class="flex items-center space-x-2 font-medium">
+                    <i data-lucide="forward" class="w-3.5 h-3.5 {{ optional($currentAccount)->forward_active ? 'text-indigo-600' : 'text-slate-400' }}"></i>
+                    <span>Penerusan Email</span>
+                </span>
+                @if(optional($currentAccount)->forward_active)
+                    <span class="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-indigo-600 text-white">Aktif</span>
+                @else
+                    <i data-lucide="chevron-right" class="w-3 h-3 text-slate-400"></i>
+                @endif
+            </a>
+
             <!-- Pintasan Keyboard Cepat -->
             <div class="pt-2 border-t border-slate-200/60 flex items-center justify-between text-[10px] text-slate-400">
                 <span>Pintasan:</span>
@@ -443,6 +458,40 @@
                 $hasMultipleRecipients = $replyAllData['has_multiple'];
                 $replyAllCount = $replyAllData['total_count'];
                 $isSelfSender = $replySingleData['is_self_sender'];
+
+                $forwardSubject = str_starts_with(strtolower($selectedEmail->subject ?? ''), 'fwd:') 
+                    ? $selectedEmail->subject 
+                    : 'Fwd: ' . ($selectedEmail->subject ?: 'Tanpa Subjek');
+
+                $fromFormatted = $selectedEmail->from_name 
+                    ? "{$selectedEmail->from_name} <{$selectedEmail->from_email}>" 
+                    : $selectedEmail->from_email;
+
+                $toFormatted = is_array($selectedEmail->to) 
+                    ? implode(', ', array_map(function($t) { 
+                        if (!is_array($t)) return (string) $t;
+                        $e = $t['email'] ?? $t['address'] ?? '';
+                        $n = $t['name'] ?? '';
+                        return ($n && $e) ? "{$n} <{$e}>" : ($e ?: $n);
+                    }, $selectedEmail->to)) 
+                    : $selectedEmail->to;
+
+                $dateFormatted = $selectedEmail->sent_at ? $selectedEmail->sent_at->isoFormat('dddd, D MMMM Y • HH:mm') . ' WIB' : '';
+
+                $forwardHeaderBody = "\n\n---------- Pesan yang Diteruskan ----------\n"
+                    . "Dari: {$fromFormatted}\n"
+                    . "Tanggal: {$dateFormatted}\n"
+                    . "Subjek: {$selectedEmail->subject}\n"
+                    . "Kepada: {$toFormatted}\n\n"
+                    . ($selectedEmail->body_text ?: strip_tags($selectedEmail->body_html));
+
+                $forwardAttachments = $selectedEmail->attachments->map(function($att) {
+                    return [
+                        'id' => $att->id,
+                        'name' => $att->filename,
+                        'size' => round($att->size_bytes / 1024, 1) . ' KB',
+                    ];
+                })->values()->all();
             @endphp
             <script>
                 window.currentEmailReplySingle = {
@@ -453,6 +502,11 @@
                     to: {!! json_encode($replyAllData['to_string']) !!},
                     cc: {!! json_encode($replyAllData['cc_string']) !!},
                     subject: {!! json_encode(str_starts_with(strtolower($selectedEmail->subject ?? ''), 're:') ? $selectedEmail->subject : 'Re: ' . ($selectedEmail->subject ?: 'Tanpa Subjek')) !!}
+                };
+                window.currentEmailForward = {
+                    subject: {!! json_encode($forwardSubject) !!},
+                    body: {!! json_encode($forwardHeaderBody) !!},
+                    attachments: {!! json_encode($forwardAttachments) !!}
                 };
             </script>
             <!-- Mobile Sticky Back Navigation Bar -->
@@ -468,6 +522,9 @@
                     </button>
                     <button onclick="scrollToQuickReply(true)" class="p-1.5 {{ $hasMultipleRecipients ? 'text-indigo-600 bg-indigo-50 font-bold' : 'text-slate-600' }} hover:text-indigo-600 rounded-lg hover:bg-slate-100 transition-colors" title="Balas Semua ({{ $replyAllCount }} alamat)">
                         <i data-lucide="reply-all" class="w-4 h-4"></i>
+                    </button>
+                    <button onclick="openForwardModal()" class="p-1.5 text-slate-600 hover:text-indigo-600 rounded-lg hover:bg-slate-100 transition-colors" title="Teruskan Pesan">
+                        <i data-lucide="forward" class="w-4 h-4 text-indigo-600"></i>
                     </button>
                     <button onclick="markCurrentAsUnread({{ $selectedEmail->id }})" class="p-1.5 text-slate-600 hover:text-blue-600 rounded-lg hover:bg-slate-100 transition-colors" title="Tandai Belum Dibaca">
                         <i data-lucide="mail" class="w-4 h-4"></i>
@@ -530,6 +587,13 @@
                                     @if($hasMultipleRecipients)
                                         <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-600 text-white font-bold ml-0.5">{{ $replyAllCount }}</span>
                                     @endif
+                                </button>
+
+                                <button onclick="openForwardModal()" 
+                                        class="inline-flex items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 rounded-xl shadow-xs transition-colors"
+                                        title="Teruskan pesan ini ke alamat email lain">
+                                    <i data-lucide="forward" class="w-3.5 h-3.5 text-indigo-600"></i>
+                                    <span>Teruskan</span>
                                 </button>
 
                                 <button onclick="markCurrentAsUnread({{ $selectedEmail->id }})" 
@@ -905,6 +969,18 @@
                           class="w-full p-3.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:bg-white leading-relaxed text-slate-800 transition-all"></textarea>
             </div>
 
+            <!-- Forward Attachments Section -->
+            <div id="forwardAttachmentsContainer" class="hidden space-y-1.5 p-3 bg-indigo-50/70 border border-indigo-100 rounded-xl">
+                <div class="flex items-center justify-between text-[11px] font-bold text-indigo-900">
+                    <span class="flex items-center space-x-1.5">
+                        <i data-lucide="paperclip" class="w-3.5 h-3.5 text-indigo-600"></i>
+                        <span>Lampiran dari Email Asli yang Diteruskan:</span>
+                    </span>
+                    <span class="text-[10px] text-indigo-500 font-normal">Klik &times; jika ingin membatalkan lampiran</span>
+                </div>
+                <div id="forwardAttachmentsList" class="flex flex-wrap gap-1.5 pt-1"></div>
+            </div>
+
             <div>
                 <label class="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Lampiran Berkas:</label>
                 <input type="file" name="attachments[]" multiple class="text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-[11px] file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer">
@@ -988,11 +1064,19 @@
     function openComposer() {
         document.getElementById('composerModal').classList.remove('hidden');
         document.getElementById('composerBodyContainer').classList.remove('hidden');
+        const forwardAttContainer = document.getElementById('forwardAttachmentsContainer');
+        const forwardAttList = document.getElementById('forwardAttachmentsList');
+        if (forwardAttContainer) forwardAttContainer.classList.add('hidden');
+        if (forwardAttList) forwardAttList.innerHTML = '';
         document.getElementById('composeTo').focus();
     }
 
     function closeComposer() {
         document.getElementById('composerModal').classList.add('hidden');
+        const forwardAttContainer = document.getElementById('forwardAttachmentsContainer');
+        const forwardAttList = document.getElementById('forwardAttachmentsList');
+        if (forwardAttContainer) forwardAttContainer.classList.add('hidden');
+        if (forwardAttList) forwardAttList.innerHTML = '';
     }
 
     function minimizeComposer() {
@@ -1090,6 +1174,58 @@
 
         const bodyInput = document.getElementById('composeBody');
         if (bodyInput) bodyInput.focus();
+    }
+
+    function openForwardModal() {
+        if (!window.currentEmailForward) return;
+        document.getElementById('composerModal').classList.remove('hidden');
+        document.getElementById('composerBodyContainer').classList.remove('hidden');
+
+        const toInput = document.getElementById('composeTo');
+        if (toInput) {
+            toInput.value = '';
+            toInput.focus();
+        }
+
+        const ccContainer = document.getElementById('ccContainer');
+        if (ccContainer) ccContainer.classList.add('hidden');
+        const ccInput = document.getElementById('composeCc');
+        if (ccInput) ccInput.value = '';
+
+        const bccContainer = document.getElementById('bccContainer');
+        if (bccContainer) bccContainer.classList.add('hidden');
+        const bccInput = document.getElementById('composeBcc');
+        if (bccInput) bccInput.value = '';
+
+        const subjInput = document.getElementById('composeSubject');
+        if (subjInput) subjInput.value = window.currentEmailForward.subject;
+
+        const bodyInput = document.getElementById('composeBody');
+        if (bodyInput) bodyInput.value = window.currentEmailForward.body;
+
+        const forwardAttContainer = document.getElementById('forwardAttachmentsContainer');
+        const forwardAttList = document.getElementById('forwardAttachmentsList');
+        if (forwardAttContainer && forwardAttList) {
+            forwardAttList.innerHTML = '';
+            if (window.currentEmailForward.attachments && window.currentEmailForward.attachments.length > 0) {
+                forwardAttContainer.classList.remove('hidden');
+                window.currentEmailForward.attachments.forEach(att => {
+                    const badge = document.createElement('div');
+                    badge.className = 'inline-flex items-center space-x-1.5 bg-white text-indigo-700 border border-indigo-200 px-2.5 py-1 rounded-lg text-xs font-medium shadow-2xs';
+                    badge.innerHTML = `
+                        <i data-lucide="paperclip" class="w-3.5 h-3.5 text-indigo-500"></i>
+                        <span>${att.name}</span>
+                        <span class="text-[10px] text-slate-400">(${att.size})</span>
+                        <input type="hidden" name="forward_attachment_ids[]" value="${att.id}">
+                        <button type="button" onclick="this.parentElement.remove()" class="text-slate-400 hover:text-rose-600 transition-colors ml-1 font-bold" title="Hapus berkas ini">&times;</button>
+                    `;
+                    forwardAttList.appendChild(badge);
+                });
+                if (window.lucide) window.lucide.createIcons();
+            } else {
+                forwardAttContainer.classList.add('hidden');
+            }
+        }
     }
 
     function openCurrentReplyInComposer() {

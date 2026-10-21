@@ -115,11 +115,23 @@ class Domain extends Model
     }
 
     /**
+     * Get the active public server IP address.
+     */
+    public static function getServerPublicIp(): string
+    {
+        return SystemSetting::get('server_public_ip') ?: env('SERVER_PUBLIC_IP', '203.2.151.17');
+    }
+
+    /**
      * Get the recommended SPF record.
      */
     public function getSpfDnsRecordAttribute(): string
     {
-        return $this->spf_record ?: 'v=spf1 ip4:103.156.88.95 include:_spf.mx.cloudflare.net ~all';
+        if (!empty($this->spf_record)) {
+            return $this->spf_record;
+        }
+        $ip = static::getServerPublicIp();
+        return "v=spf1 ip4:{$ip} include:_spf.mx.cloudflare.net ~all";
     }
 
     /**
@@ -137,6 +149,7 @@ class Domain extends Model
     {
         $selector = $this->dkim_selector ?: 'apexmail';
         $domainName = strtolower(trim($this->name));
+        $serverIp = static::getServerPublicIp();
 
         return [
             [
@@ -161,7 +174,7 @@ class Domain extends Model
                 'priority' => null,
                 'ttl' => 'Auto',
                 'required' => true,
-                'description' => 'Mengizinkan IP server lokal (103.156.88.95) dan Cloudflare untuk mengirimkan email atas nama domain.',
+                'description' => "Mengizinkan IP server ({$serverIp}) dan Cloudflare untuk mengirimkan email atas nama domain.",
             ],
             [
                 'category' => 'DMARC',
@@ -174,6 +187,18 @@ class Domain extends Model
                 'ttl' => 'Auto',
                 'required' => true,
                 'description' => 'Kebijakan kepatuhan dan pelaporan anti-pemalsuan domain.',
+            ],
+            [
+                'category' => 'PTR',
+                'title' => 'Reverse DNS / PTR (Wajib Gmail)',
+                'type' => 'PTR',
+                'name' => $serverIp,
+                'full_host' => "IP {$serverIp}",
+                'value' => "mail.{$domainName}",
+                'priority' => null,
+                'ttl' => 'Default',
+                'required' => true,
+                'description' => "Disetel di ISP / IDNIC pengelola IP ({$serverIp} -> mail.{$domainName}) agar tidak diblokir Gmail 550-5.7.25.",
             ],
             [
                 'category' => 'MX',
@@ -213,23 +238,23 @@ class Domain extends Model
             ],
             [
                 'category' => 'A',
-                'title' => 'A Record Server Mail (Opsional)',
+                'title' => 'A Record Server Mail (DNS Only / Awan Abu)',
                 'type' => 'A',
                 'name' => 'mail',
                 'full_host' => "mail.{$domainName}",
-                'value' => '103.156.88.95',
+                'value' => $serverIp,
                 'priority' => null,
                 'ttl' => 'Auto',
-                'required' => false,
+                'required' => true,
                 'description' => 'Hostname koneksi direct mail server port 25/587.',
             ],
             [
                 'category' => 'A',
-                'title' => 'A Record Webmail (Opsional)',
+                'title' => 'A Record Webmail',
                 'type' => 'A',
                 'name' => 'webmail',
                 'full_host' => "webmail.{$domainName}",
-                'value' => '103.156.88.95',
+                'value' => $serverIp,
                 'priority' => null,
                 'ttl' => 'Auto',
                 'required' => false,
@@ -274,8 +299,9 @@ class Domain extends Model
         }
 
         // 2. Check SPF
+        $serverIp = static::getServerPublicIp();
         $spfStatus = 'unpropagated';
-        $spfDetails = "Belum terdeteksi di DNS host '{$domainName}'. Tambahkan TXT @ dengan include Cloudflare dan IP server.";
+        $spfDetails = "Belum terdeteksi di DNS host '{$domainName}'. Tambahkan TXT @ dengan include Cloudflare dan IP server {$serverIp}.";
         $spfFound = null;
 
         $rootTxtRecords = @dns_get_record($domainName, DNS_TXT);
@@ -284,12 +310,12 @@ class Domain extends Model
                 $txt = $r['txt'] ?? '';
                 if (str_starts_with(trim($txt), 'v=spf1')) {
                     $spfFound = $txt;
-                    if (str_contains($txt, '103.156.88.95') || str_contains($txt, '_spf.mx.cloudflare.net')) {
+                    if (str_contains($txt, $serverIp) || str_contains($txt, '103.156.88.95') || str_contains($txt, '_spf.mx.cloudflare.net')) {
                         $spfStatus = 'verified';
                         $spfDetails = 'Record SPF aktif: ' . $txt;
                     } else {
                         $spfStatus = 'partial';
-                        $spfDetails = 'Record SPF terdeteksi namun belum menyertakan IP server 103.156.88.95: ' . $txt;
+                        $spfDetails = "Record SPF terdeteksi namun belum menyertakan IP server {$serverIp}: " . $txt;
                     }
                     break;
                 }
@@ -330,6 +356,14 @@ class Domain extends Model
             $mxDetails = count($mxHosts) . ' MX record aktif: ' . implode(', ', $mxHosts);
         }
 
+        // 5. Check PTR (Reverse DNS) - Wajib Google / Gmail
+        $ptrHost = @gethostbyaddr($serverIp);
+        $ptrValid = ($ptrHost && $ptrHost !== $serverIp);
+        $ptrStatus = $ptrValid ? 'verified' : 'unpropagated';
+        $ptrDetails = $ptrValid
+            ? "PTR Record terverifikasi aktif: {$serverIp} mengarah balik ke '{$ptrHost}'."
+            : "PTR Record belum disetel pada IP {$serverIp} di ISP. Gmail menolak pengiriman langsung (Error 550-5.7.25) hingga PTR disetel ke 'mail.{$domainName}'.";
+
         return [
             'dkim' => [
                 'status' => $dkimStatus,
@@ -350,6 +384,12 @@ class Domain extends Model
                 'status' => $mxStatus,
                 'details' => $mxDetails,
                 'hosts' => $mxHosts,
+            ],
+            'ptr' => [
+                'status' => $ptrStatus,
+                'details' => $ptrDetails,
+                'host' => $ptrHost,
+                'ip' => $serverIp,
             ],
             'checked_at' => now()->format('d M Y H:i:s'),
         ];

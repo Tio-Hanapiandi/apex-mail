@@ -12,7 +12,11 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule): void
     {
-        // $schedule->command('inspire')->hourly();
+        // Proses pengiriman ulang email tertahan setiap 10 menit
+        $schedule->command('mail:process-deferred')->everyTenMinutes()->withoutOverlapping();
+
+        // Bersihkan token password reset kadaluarsa setiap hari
+        $schedule->command('auth:clear-resets')->daily();
     }
 
     /**

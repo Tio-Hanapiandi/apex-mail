@@ -172,6 +172,18 @@
                                 <span class="px-1.5 py-0.2 rounded text-[9px] font-medium bg-slate-100 text-slate-500">Nonaktif</span>
                             @endif
                         </a>
+
+                        <a href="{{ route('webmail.forwarding') }}" class="flex items-center justify-between px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors">
+                            <div class="flex items-center space-x-2">
+                                <i data-lucide="forward" class="w-3.5 h-3.5 text-indigo-600"></i>
+                                <span class="font-medium">Penerusan Email</span>
+                            </div>
+                            @if(optional($activeAcc)->forward_active)
+                                <span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">Aktif</span>
+                            @else
+                                <span class="px-1.5 py-0.2 rounded text-[9px] font-medium bg-slate-100 text-slate-500">Nonaktif</span>
+                            @endif
+                        </a>
                     </div>
                     <div class="border-t border-slate-100"></div>
 
@@ -255,6 +267,18 @@
                         <span>Keamanan & 2FA</span>
                     </div>
                     @if(optional($activeAcc)->two_factor_enabled)
+                        <span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">Aktif</span>
+                    @else
+                        <span class="px-1.5 py-0.2 rounded text-[9px] font-medium bg-slate-100 text-slate-500">Nonaktif</span>
+                    @endif
+                </a>
+                <a href="{{ route('webmail.forwarding') }}" 
+                   class="flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition-colors {{ request()->routeIs('webmail.forwarding*') ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-700 hover:bg-slate-50' }}">
+                    <div class="flex items-center space-x-3">
+                        <i data-lucide="forward" class="w-4 h-4 text-indigo-600"></i>
+                        <span>Penerusan Email</span>
+                    </div>
+                    @if(optional($activeAcc)->forward_active)
                         <span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">Aktif</span>
                     @else
                         <span class="px-1.5 py-0.2 rounded text-[9px] font-medium bg-slate-100 text-slate-500">Nonaktif</span>

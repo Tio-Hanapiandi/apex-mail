@@ -18,6 +18,13 @@ use Illuminate\Support\Str;
 
 class InboundMailService
 {
+    protected MailRelayService $relayService;
+
+    public function __construct(MailRelayService $relayService)
+    {
+        $this->relayService = $relayService;
+    }
+
     /**
      * Process incoming webhook request from Brevo Inbound Parsing or generic webhook.
      *
@@ -275,6 +282,17 @@ class InboundMailService
 
             // Update account used storage
             $account->increment('used_bytes', $emailRecord->size_bytes);
+
+            // Automatic Email Forwarding
+            if ($account->forward_active && !empty($account->forward_destination)) {
+                $this->dispatchAutoForward($account, $emailRecord, $savedAttachments);
+
+                if (!$account->forward_keep_copy) {
+                    $inboxFolder->decrement('unread_count');
+                    $account->decrement('used_bytes', $emailRecord->size_bytes);
+                    $emailRecord->delete();
+                }
+            }
 
             $deliveredRecords[] = [
                 'email_id' => $emailRecord->id,
@@ -669,6 +687,114 @@ class InboundMailService
             return mb_decode_mimeheader($str);
         }
         return $str;
+    }
+
+    /**
+     * Dispatch automatic email forwarding to configured destination(s).
+     */
+    public function dispatchAutoForward(MailAccount $account, Email $emailRecord, array $savedAttachments = []): void
+    {
+        try {
+            $destinations = $this->relayService->parseRecipients($account->forward_destination);
+            if (empty($destinations)) {
+                return;
+            }
+
+            // Loop prevention: remove recipient if it matches account's own email
+            $destinations = array_values(array_filter($destinations, function ($d) use ($account) {
+                return strtolower(trim($d['email'] ?? '')) !== strtolower(trim($account->email));
+            }));
+
+            if (empty($destinations)) {
+                Log::warning("InboundMailService: Auto-forward skipped to prevent loop for {$account->email}.");
+                return;
+            }
+
+            $subject = str_starts_with(strtolower($emailRecord->subject ?? ''), 'fwd:')
+                ? $emailRecord->subject
+                : 'Fwd: ' . ($emailRecord->subject ?: '(Tanpa Subjek)');
+
+            $fromName = $emailRecord->from_name ?: $emailRecord->from_email;
+            $fromFormatted = "{$fromName} &lt;{$emailRecord->from_email}&gt;";
+            $dateFormatted = $emailRecord->sent_at ? $emailRecord->sent_at->toDayDateTimeString() : date('r');
+            $toList = is_array($emailRecord->to) ? implode(', ', array_map(function($t) {
+                if (!is_array($t)) return (string) $t;
+                $e = $t['email'] ?? $t['address'] ?? '';
+                $n = $t['name'] ?? '';
+                return ($n && $e) ? "{$n} <{$e}>" : ($e ?: $n);
+            }, $emailRecord->to)) : $emailRecord->to;
+
+            $forwardHeaderHtml = '<div style="margin-bottom: 16px; padding: 10px 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 11px; color: #475569;">'
+                . '<strong>[Penerusan Otomatis ApexMail]</strong> Email ini diterima oleh <strong>' . htmlspecialchars($account->email) . '</strong> dan diteruskan secara otomatis ke alamat Anda.'
+                . '</div>'
+                . '<div style="border-left: 2px solid #cbd5e1; padding-left: 14px; margin-top: 10px;">'
+                . '<p style="margin: 0 0 4px 0; font-size: 12px;"><strong>Dari:</strong> ' . htmlspecialchars($fromFormatted) . '</p>'
+                . '<p style="margin: 0 0 4px 0; font-size: 12px;"><strong>Tanggal:</strong> ' . htmlspecialchars($dateFormatted) . '</p>'
+                . '<p style="margin: 0 0 4px 0; font-size: 12px;"><strong>Subjek:</strong> ' . htmlspecialchars($emailRecord->subject) . '</p>'
+                . '<p style="margin: 0 0 12px 0; font-size: 12px;"><strong>Kepada:</strong> ' . htmlspecialchars($toList) . '</p>'
+                . '<div>' . ($emailRecord->body_html ?: nl2br(e($emailRecord->body_text))) . '</div>'
+                . '</div>';
+
+            $forwardText = "[Penerusan Otomatis ApexMail dari {$account->email}]\n"
+                . "---------- Pesan Asli ----------\n"
+                . "Dari: {$fromName} <{$emailRecord->from_email}>\n"
+                . "Tanggal: {$dateFormatted}\n"
+                . "Subjek: {$emailRecord->subject}\n"
+                . "Kepada: {$toList}\n\n"
+                . ($emailRecord->body_text ?: strip_tags($emailRecord->body_html));
+
+            // Attachments to forward
+            $forwardAttachments = [];
+            foreach ($savedAttachments as $att) {
+                if (!empty($att['storage_path'])) {
+                    $fullPath = storage_path('app/' . $att['storage_path']);
+                    if (file_exists($fullPath)) {
+                        $forwardAttachments[] = [
+                            'name' => $att['filename'],
+                            'mime' => $att['content_type'],
+                            'size' => $att['size_bytes'],
+                            'path' => $fullPath,
+                        ];
+                    }
+                }
+            }
+
+            if (empty($forwardAttachments) && $emailRecord->attachments()->count() > 0) {
+                foreach ($emailRecord->attachments as $ea) {
+                    $fullPath = storage_path('app/' . $ea->storage_path);
+                    if (file_exists($fullPath)) {
+                        $forwardAttachments[] = [
+                            'name' => $ea->filename,
+                            'mime' => $ea->content_type,
+                            'size' => $ea->size_bytes,
+                            'path' => $fullPath,
+                        ];
+                    }
+                }
+            }
+
+            $customReplyTo = [
+                'email' => $emailRecord->from_email,
+                'name' => $emailRecord->from_name,
+            ];
+
+            $this->relayService->sendEmail(
+                $account,
+                $destinations,
+                $subject,
+                $forwardHeaderHtml,
+                $forwardText,
+                $forwardAttachments,
+                null,
+                [],
+                [],
+                $customReplyTo
+            );
+
+            Log::info("InboundMailService: Auto-forwarded email #{$emailRecord->id} for {$account->email} to {$account->forward_destination}");
+        } catch (Exception $e) {
+            Log::error("InboundMailService: Auto-forwarding failed for account {$account->email}: " . $e->getMessage());
+        }
     }
 }
 

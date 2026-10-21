@@ -170,7 +170,7 @@
                                 </div>
                                 <p class="text-xs text-slate-500 mt-0.5">
                                     Selector: <code class="font-mono font-bold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">{{ $selectedDomain->dkim_selector ?: 'apexmail' }}</code> &bull;
-                                    IP Pengirim: <code class="font-mono font-bold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">103.156.88.95</code>
+                                    IP Pengirim: <code class="font-mono font-bold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">{{ \App\Models\Domain::getServerPublicIp() }}</code>
                                     @if($selectedDomain->description)
                                         &bull; {{ $selectedDomain->description }}
                                     @endif
@@ -318,6 +318,30 @@
                                         </div>
                                         <p class="text-[11px] text-slate-600 leading-relaxed">{{ $dnsCheckResult['mx']['details'] }}</p>
                                     </div>
+
+                                    <!-- Status PTR (Reverse DNS di ISP) -->
+                                    @if(isset($dnsCheckResult['ptr']))
+                                        <div class="p-3 bg-white border rounded-xl space-y-1.5 md:col-span-2 {{ $dnsCheckResult['ptr']['status'] === 'verified' ? 'border-emerald-200 bg-emerald-50/20' : 'border-rose-200 bg-rose-50/30' }}">
+                                            <div class="flex items-center justify-between">
+                                                <span class="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
+                                                    <span>Reverse DNS (PTR Record di ISP/IDNIC)</span>
+                                                    <span class="font-mono text-[10px] text-slate-500">({{ $dnsCheckResult['ptr']['ip'] }})</span>
+                                                </span>
+                                                @if($dnsCheckResult['ptr']['status'] === 'verified')
+                                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 flex items-center space-x-1">
+                                                        <i data-lucide="check" class="w-3 h-3"></i>
+                                                        <span>PTR Valid</span>
+                                                    </span>
+                                                @else
+                                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 flex items-center space-x-1">
+                                                        <i data-lucide="alert-triangle" class="w-3 h-3"></i>
+                                                        <span>Wajib Diatur di ISP</span>
+                                                    </span>
+                                                @endif
+                                            </div>
+                                            <p class="text-[11px] text-slate-600 leading-relaxed">{{ $dnsCheckResult['ptr']['details'] }}</p>
+                                        </div>
+                                    @endif
                                 </div>
                             </div>
                         @endif

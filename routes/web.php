@@ -57,6 +57,10 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/security/two-factor', [TwoFactorController::class, 'show'])->name('security.two-factor');
     Route::post('/security/two-factor/confirm', [TwoFactorController::class, 'confirm'])->name('security.two-factor.confirm');
     Route::post('/security/two-factor/disable', [TwoFactorController::class, 'disable'])->name('security.two-factor.disable');
+
+    // Email Forwarding Settings (Penerusan Email)
+    Route::get('/settings/forwarding', [WebmailController::class, 'showForwarding'])->name('webmail.forwarding');
+    Route::post('/settings/forwarding', [WebmailController::class, 'updateForwarding'])->name('webmail.forwarding.update');
 });
 
 // Admin Web Console Routes (Protected by Auth & Admin Role)

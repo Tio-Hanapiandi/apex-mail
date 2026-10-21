@@ -6,12 +6,13 @@ export default {
       from: message.from,
       to: message.to,
       subject: message.headers.get('subject') || '(Tanpa Subjek)',
-      message_id: message.headers.get('message-id') || ('cf-' + Date.now() + '@azkario.biz.id'),
+      message_id: message.headers.get('message-id') || ('cf-' + Date.now() + '@mybbs.id'),
       date: message.headers.get('date') || new Date().toISOString(),
       raw_mime: raw
     };
 
-    const targetUrl = 'https://estrogen-stubbed-secret.ngrok-free.dev/api/mail/inbound?token=apex-inbound-secret';
+    // Target endpoint production ApexMail
+    const targetUrl = 'http://mail.mybbs.id/api/mail/inbound?token=apex-inbound-secret';
 
     await fetch(targetUrl, {
       method: 'POST',
