@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\BlockedSender;
 use App\Models\Domain;
 use App\Models\Email;
 use App\Models\MailAccount;
 use App\Models\MailAlias;
+use App\Models\MailFolder;
 use App\Models\SmtpRelay;
 use App\Services\MailRelayService;
 use App\Services\PasswordPolicyService;
@@ -917,6 +919,109 @@ class AdminController extends Controller
         );
 
         return response()->json($result);
+    }
+
+    /**
+     * Display the Spam & Sender Blocking Management page.
+     */
+    public function spamIndex(Request $request)
+    {
+        $query = $request->query('q');
+        $accountId = $request->query('account_id');
+
+        $blockedQuery = BlockedSender::with(['account.domain']);
+
+        if (!empty($query)) {
+            $blockedQuery->where(function ($q) use ($query) {
+                $q->where('sender_email', 'like', "%{$query}%")
+                  ->orWhere('sender_domain', 'like', "%{$query}%")
+                  ->orWhere('reason', 'like', "%{$query}%")
+                  ->orWhereHas('account', function ($subQ) use ($query) {
+                      $subQ->where('email', 'like', "%{$query}%")
+                           ->orWhere('display_name', 'like', "%{$query}%");
+                  });
+            });
+        }
+
+        if (!empty($accountId)) {
+            $blockedQuery->where('mail_account_id', $accountId);
+        }
+
+        $blockedSenders = $blockedQuery->orderBy('created_at', 'desc')->paginate(20)->withQueryString();
+
+        $totalBlocked = BlockedSender::count();
+        $userMarkedSpamCount = BlockedSender::whereNotNull('mail_account_id')->count();
+        $globalBlockedCount = BlockedSender::whereNull('mail_account_id')->count();
+        
+        $accounts = MailAccount::with('domain')->orderBy('email')->get(['id', 'email', 'display_name', 'domain_id']);
+
+        return view('admin.spam', compact(
+            'blockedSenders',
+            'totalBlocked',
+            'userMarkedSpamCount',
+            'globalBlockedCount',
+            'accounts',
+            'query',
+            'accountId'
+        ));
+    }
+
+    /**
+     * Store manual sender block rule by administrator.
+     */
+    public function storeBlockedSender(Request $request)
+    {
+        $request->validate([
+            'sender_email' => 'required|string|max:255',
+            'mail_account_id' => 'nullable|exists:mail_accounts,id',
+            'reason' => 'nullable|string|max:255',
+        ]);
+
+        $senderEmail = strtolower(trim($request->input('sender_email')));
+        $accountId = $request->input('mail_account_id') ? (int) $request->input('mail_account_id') : null;
+        $reason = $request->input('reason') ?: 'Diblokir secara manual oleh Administrator';
+
+        BlockedSender::blockSender($accountId, $senderEmail, $reason);
+
+        $targetDesc = $accountId 
+            ? 'akun ' . MailAccount::find($accountId)->email 
+            : 'seluruh mailbox (Global)';
+
+        return redirect()->back()->with('success', "Pengirim {$senderEmail} berhasil diblokir untuk {$targetDesc}.");
+    }
+
+    /**
+     * Unblock a sender rule (so emails from this sender can enter mailbox normally again).
+     * If restore_emails is true, moves any messages from this sender in user's Spam folder back to Inbox.
+     */
+    public function unblockSender(Request $request, $id)
+    {
+        $rule = BlockedSender::with('account')->findOrFail($id);
+        $senderEmail = $rule->sender_email;
+        $account = $rule->account;
+
+        $restoredCount = 0;
+        if ($request->boolean('restore_emails', true) && $account) {
+            $spamFolder = MailFolder::where('mail_account_id', $account->id)->where('slug', 'spam')->first();
+            $inboxFolder = MailFolder::where('mail_account_id', $account->id)->where('slug', 'inbox')->first();
+
+            if ($spamFolder && $inboxFolder) {
+                $restoredCount = Email::where('mail_account_id', $account->id)
+                    ->where('mail_folder_id', $spamFolder->id)
+                    ->where('from_email', $senderEmail)
+                    ->update(['mail_folder_id' => $inboxFolder->id]);
+            }
+        }
+
+        $rule->delete();
+
+        $accountName = $account ? $account->email : 'Semua Akun (Global)';
+        $msg = "Pengirim {$senderEmail} berhasil dibuka blokirnya untuk {$accountName}. Email berikutnya dapat masuk kembali ke mailbox.";
+        if ($restoredCount > 0) {
+            $msg .= " Sebanyak {$restoredCount} email yang berada di folder Spam telah dikembalikan ke Kotak Masuk.";
+        }
+
+        return redirect()->back()->with('success', $msg);
     }
 }
 

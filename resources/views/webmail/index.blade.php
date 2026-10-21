@@ -304,6 +304,15 @@
                 <button type="button" onclick="submitBatch('star')" class="p-1.5 hover:bg-blue-100 rounded-lg text-amber-600" title="Beri Bintang">
                     <i data-lucide="star" class="w-3.5 h-3.5"></i>
                 </button>
+                @if(($currentFolder->slug ?? '') === 'spam')
+                    <button type="button" onclick="submitBatch('unmark_spam')" class="p-1.5 hover:bg-emerald-100 rounded-lg text-emerald-700" title="Bukan Spam (Kembalikan ke Kotak Masuk)">
+                        <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
+                    </button>
+                @else
+                    <button type="button" onclick="submitBatch('mark_spam')" class="p-1.5 hover:bg-rose-100 rounded-lg text-rose-600" title="Tandai sebagai Spam & Blokir Pengirim">
+                        <i data-lucide="shield-alert" class="w-3.5 h-3.5"></i>
+                    </button>
+                @endif
                 <button type="button" onclick="submitBatch('delete')" class="p-1.5 hover:bg-rose-100 rounded-lg text-rose-600" title="Pindahkan ke Sampah">
                     <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
                 </button>
@@ -435,6 +444,15 @@
                     <button onclick="markCurrentAsUnread({{ $selectedEmail->id }})" class="p-1.5 text-slate-600 hover:text-blue-600 rounded-lg hover:bg-slate-100 transition-colors" title="Tandai Belum Dibaca">
                         <i data-lucide="mail" class="w-4 h-4"></i>
                     </button>
+                    @if(($currentFolder->slug ?? '') === 'spam')
+                        <button onclick="document.getElementById('unmarkSpamDetailForm_{{ $selectedEmail->id }}').submit()" class="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Bukan Spam">
+                            <i data-lucide="shield-check" class="w-4 h-4"></i>
+                        </button>
+                    @else
+                        <button onclick="confirmMarkSpamDetail('{{ $selectedEmail->id }}', '{{ addslashes($selectedEmail->from_email) }}')" class="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors" title="Tandai Spam & Blokir Pengirim">
+                            <i data-lucide="shield-alert" class="w-4 h-4"></i>
+                        </button>
+                    @endif
                     <form id="deleteEmailMobileTopForm_{{ $selectedEmail->id }}" action="{{ route('webmail.destroy', $selectedEmail->id) }}" method="POST" class="inline">
                         @csrf
                         @method('DELETE')
@@ -512,7 +530,7 @@
                                 </button>
                             </div>
 
-                            <!-- Grup Tombol Utilitas (Tandai Belum Dibaca, Cetak, Hapus) -->
+                            <!-- Grup Tombol Utilitas (Tandai Belum Dibaca, Cetak, Spam, Hapus) -->
                             <div class="flex items-center space-x-1.5 flex-wrap gap-y-1.5">
                                 <button onclick="markCurrentAsUnread({{ $selectedEmail->id }})" 
                                         class="inline-flex items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:text-blue-600 rounded-xl shadow-xs transition-colors"
@@ -520,6 +538,29 @@
                                     <i data-lucide="mail" class="w-3.5 h-3.5 text-slate-500"></i>
                                     <span class="hidden sm:inline">Tandai Belum Dibaca</span>
                                 </button>
+
+                                @if(($currentFolder->slug ?? '') === 'spam')
+                                    <form id="unmarkSpamDetailForm_{{ $selectedEmail->id }}" action="{{ route('webmail.unmark-spam', $selectedEmail->id) }}" method="POST" class="inline">
+                                        @csrf
+                                        <button type="submit" 
+                                                class="inline-flex items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-xl shadow-xs transition-colors"
+                                                title="Bukan Spam: Kembalikan ke Kotak Masuk dan Buka Blokir Pengirim">
+                                            <i data-lucide="shield-check" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                            <span>Bukan Spam</span>
+                                        </button>
+                                    </form>
+                                @else
+                                    <form id="markSpamDetailForm_{{ $selectedEmail->id }}" action="{{ route('webmail.mark-spam', $selectedEmail->id) }}" method="POST" class="inline">
+                                        @csrf
+                                        <button type="button" 
+                                                onclick="confirmMarkSpamDetail('{{ $selectedEmail->id }}', '{{ addslashes($selectedEmail->from_email) }}')"
+                                                class="inline-flex items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 rounded-xl shadow-xs transition-colors"
+                                                title="Tandai sebagai Spam dan Blokir Pengirim">
+                                            <i data-lucide="shield-alert" class="w-3.5 h-3.5 text-rose-500"></i>
+                                            <span>Tandai Spam</span>
+                                        </button>
+                                    </form>
+                                @endif
 
                                 <button onclick="window.print()" 
                                         class="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors hidden sm:inline-flex" title="Cetak Surat">
@@ -1803,6 +1844,13 @@
             return;
         }
 
+        if (action === 'mark_spam') {
+            showConfirmModal('Tandai Terpilih sebagai Spam?', `Apakah Anda yakin ingin memindahkan ${ids.length} email yang dipilih ke folder Spam dan memblokir pengirimnya? Email berikutnya dari pengirim tersebut tidak akan masuk ke kotak masuk Anda.`, () => {
+                executeBatchAction(action, ids);
+            }, 'Ya, Tandai Spam & Blokir', true);
+            return;
+        }
+
         executeBatchAction(action, ids);
     }
 
@@ -1853,6 +1901,19 @@
         }).then(() => {
             window.location.href = "{{ route('webmail.index', array_filter(['folder' => $currentFolder->slug ?? 'inbox', 'page' => request('page'), 'filter' => $activeFilter !== 'all' ? $activeFilter : null, 'q' => $query])) }}";
         });
+    }
+
+    function confirmMarkSpamDetail(id, senderEmail) {
+        showConfirmModal(
+            'Tandai sebagai Spam?',
+            `Apakah Anda yakin ingin memindahkan email ini ke folder Spam dan memblokir pengirim (${senderEmail})? Email berikutnya dari pengirim tersebut tidak akan masuk ke kotak masuk Anda.`,
+            () => {
+                const form = document.getElementById('markSpamDetailForm_' + id);
+                if (form) form.submit();
+            },
+            'Ya, Tandai Spam & Blokir',
+            true
+        );
     }
 
     // 9. Quick Reply Attachments

@@ -49,6 +49,8 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/webmail/attachments/{id}/inline', [WebmailController::class, 'inlineAttachment'])->name('webmail.attachment.inline');
     Route::post('/webmail/{id}/toggle-star', [WebmailController::class, 'toggleStar'])->name('webmail.toggle-star');
     Route::post('/webmail/{id}/toggle-read', [WebmailController::class, 'toggleRead'])->name('webmail.toggle-read');
+    Route::post('/webmail/{id}/spam', [WebmailController::class, 'markSpam'])->name('webmail.mark-spam');
+    Route::post('/webmail/{id}/unmark-spam', [WebmailController::class, 'unmarkSpam'])->name('webmail.unmark-spam');
     Route::delete('/webmail/{id}', [WebmailController::class, 'destroy'])->name('webmail.destroy');
 
     Route::get('/contacts', [GroupwareController::class, 'contacts'])->name('groupware.contacts');
@@ -109,6 +111,11 @@ Route::prefix('admin')->name('admin.')->middleware(['auth', 'admin'])->group(fun
     // Inbound Mail & Webhook Management
     Route::get('/inbound', [AdminController::class, 'inbound'])->name('inbound');
     Route::post('/inbound/simulate', [AdminController::class, 'simulateInbound'])->name('inbound.simulate');
+
+    // Spam Filtering & Sender Blocking Oversight
+    Route::get('/spam', [AdminController::class, 'spamIndex'])->name('spam.index');
+    Route::post('/spam', [AdminController::class, 'storeBlockedSender'])->name('spam.store');
+    Route::delete('/spam/{id}', [AdminController::class, 'unblockSender'])->name('spam.unblock');
 
     // Mailbox & User Migration Suite (Zimbra / EML / CSV / Live IMAP)
     Route::get('/migration', [AdminController::class, 'migration'])->name('migration');

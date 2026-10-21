@@ -219,9 +219,19 @@ class InboundMailService
                 ['name' => 'Kotak Masuk', 'icon' => 'inbox', 'color' => '#2563EB', 'is_system' => true]
             );
 
-            // Deduplication check: prevent inserting same message or duplicate loopbacks in same inbox
+            // Check if sender is marked as spam / blocked for this account (or globally)
+            $isSpamBlocked = \App\Models\BlockedSender::isBlocked($account->id, $fromEmail);
+
+            $targetFolder = $isSpamBlocked
+                ? $account->folders()->firstOrCreate(
+                    ['slug' => 'spam'],
+                    ['name' => 'Spam', 'icon' => 'alert-octagon', 'color' => '#EF4444', 'is_system' => true]
+                )
+                : $inboxFolder;
+
+            // Deduplication check: prevent inserting same message in target folder
             $existing = Email::where('mail_account_id', $account->id)
-                ->where('mail_folder_id', $inboxFolder->id)
+                ->where('mail_folder_id', $targetFolder->id)
                 ->where(function ($q) use ($messageId, $subject, $fromEmail, $snippet) {
                     $q->where('message_id', $messageId);
                     if (!empty($subject) && $subject !== '(Tanpa Subjek)') {
@@ -242,7 +252,11 @@ class InboundMailService
                 continue;
             }
 
-            $emailRecord = $inboxFolder->emails()->create([
+            if ($isSpamBlocked) {
+                Log::info("InboundMailService: Email from {$fromEmail} routed directly to Spam folder for {$account->email} because sender is blocked.");
+            }
+
+            $emailRecord = $targetFolder->emails()->create([
                 'mail_account_id' => $account->id,
                 'message_id' => $messageId,
                 'in_reply_to' => $inReplyTo,
@@ -277,18 +291,18 @@ class InboundMailService
                 ]);
             }
 
-            // Increment inbox unread count
-            $inboxFolder->increment('unread_count');
+            // Increment unread count for target folder
+            $targetFolder->increment('unread_count');
 
             // Update account used storage
             $account->increment('used_bytes', $emailRecord->size_bytes);
 
-            // Automatic Email Forwarding
-            if ($account->forward_active && !empty($account->forward_destination)) {
+            // Automatic Email Forwarding (hanya jika bukan spam)
+            if (!$isSpamBlocked && $account->forward_active && !empty($account->forward_destination)) {
                 $this->dispatchAutoForward($account, $emailRecord, $savedAttachments);
 
                 if (!$account->forward_keep_copy) {
-                    $inboxFolder->decrement('unread_count');
+                    $targetFolder->decrement('unread_count');
                     $account->decrement('used_bytes', $emailRecord->size_bytes);
                     $emailRecord->delete();
                 }

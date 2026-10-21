@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\BlockedSender;
 use App\Models\Contact;
 use App\Models\Email;
 use App\Models\EmailAttachment;
@@ -407,12 +408,12 @@ class WebmailController extends Controller
     }
 
     /**
-     * Batch actions on multiple selected emails (mark read, delete, star).
+     * Batch actions on multiple selected emails (mark read, delete, star, spam).
      */
     public function batchAction(Request $request)
     {
         $request->validate([
-            'action' => 'required|string|in:mark_read,mark_unread,delete,star',
+            'action' => 'required|string|in:mark_read,mark_unread,delete,star,mark_spam,unmark_spam',
             'email_ids' => 'required|array',
             'email_ids.*' => 'exists:emails,id',
         ]);
@@ -434,6 +435,34 @@ class WebmailController extends Controller
                 Email::whereIn('id', $ids)->where('mail_account_id', $sender->id)->update(['is_starred' => true]);
                 $msg = count($ids) . ' pesan ditandai bintang.';
                 break;
+            case 'mark_spam':
+                $spamFolder = MailFolder::firstOrCreate(
+                    ['mail_account_id' => $sender->id, 'slug' => 'spam'],
+                    ['name' => 'Spam', 'icon' => 'alert-octagon', 'color' => '#EF4444', 'is_system' => true]
+                );
+                $emails = Email::whereIn('id', $ids)->where('mail_account_id', $sender->id)->get();
+                foreach ($emails as $em) {
+                    $em->update(['mail_folder_id' => $spamFolder->id]);
+                    if (!empty($em->from_email)) {
+                        BlockedSender::blockSender($sender->id, $em->from_email, 'Ditandai sebagai spam oleh pengguna');
+                    }
+                }
+                $msg = count($ids) . ' pesan dipindahkan ke Spam dan pengirim telah diblokir.';
+                break;
+            case 'unmark_spam':
+                $inboxFolder = MailFolder::firstOrCreate(
+                    ['mail_account_id' => $sender->id, 'slug' => 'inbox'],
+                    ['name' => 'Kotak Masuk', 'icon' => 'inbox', 'color' => '#2563EB', 'is_system' => true]
+                );
+                $emails = Email::whereIn('id', $ids)->where('mail_account_id', $sender->id)->get();
+                foreach ($emails as $em) {
+                    $em->update(['mail_folder_id' => $inboxFolder->id]);
+                    if (!empty($em->from_email)) {
+                        BlockedSender::unblockSender($sender->id, $em->from_email, 'user');
+                    }
+                }
+                $msg = count($ids) . ' pesan dikembalikan ke Kotak Masuk dan pengirim telah dibuka blokirnya.';
+                break;
             case 'delete':
                 $trashFolder = MailFolder::where('mail_account_id', $sender->id)->where('slug', 'trash')->first();
                 if ($trashFolder) {
@@ -453,6 +482,62 @@ class WebmailController extends Controller
         }
 
         return redirect()->back()->with('success', $msg);
+    }
+
+    /**
+     * Mark single email as spam and block sender.
+     */
+    public function markSpam(Request $request, $id)
+    {
+        $sender = $this->getActiveAccount();
+        $email = Email::where('mail_account_id', $sender->id)->findOrFail($id);
+
+        $spamFolder = MailFolder::firstOrCreate(
+            ['mail_account_id' => $sender->id, 'slug' => 'spam'],
+            ['name' => 'Spam', 'icon' => 'alert-octagon', 'color' => '#EF4444', 'is_system' => true]
+        );
+
+        $email->update(['mail_folder_id' => $spamFolder->id]);
+
+        if (!empty($email->from_email)) {
+            BlockedSender::blockSender($sender->id, $email->from_email, 'Ditandai sebagai spam oleh pengguna');
+        }
+
+        $msg = "Email telah dipindahkan ke folder Spam dan pengirim ({$email->from_email}) telah diblokir.";
+
+        if ($request->ajax() || $request->wantsJson()) {
+            return response()->json(['success' => true, 'message' => $msg]);
+        }
+
+        return redirect()->route('webmail.index', ['folder' => 'inbox'])->with('success', $msg);
+    }
+
+    /**
+     * Unmark spam: restore email to inbox and unblock sender.
+     */
+    public function unmarkSpam(Request $request, $id)
+    {
+        $sender = $this->getActiveAccount();
+        $email = Email::where('mail_account_id', $sender->id)->findOrFail($id);
+
+        $inboxFolder = MailFolder::firstOrCreate(
+            ['mail_account_id' => $sender->id, 'slug' => 'inbox'],
+            ['name' => 'Kotak Masuk', 'icon' => 'inbox', 'color' => '#2563EB', 'is_system' => true]
+        );
+
+        $email->update(['mail_folder_id' => $inboxFolder->id]);
+
+        if (!empty($email->from_email)) {
+            BlockedSender::unblockSender($sender->id, $email->from_email, 'user');
+        }
+
+        $msg = "Email dikembalikan ke Kotak Masuk dan pengirim ({$email->from_email}) telah dibuka blokirnya.";
+
+        if ($request->ajax() || $request->wantsJson()) {
+            return response()->json(['success' => true, 'message' => $msg]);
+        }
+
+        return redirect()->route('webmail.index', ['folder' => 'inbox', 'email' => $email->id])->with('success', $msg);
     }
 
     /**

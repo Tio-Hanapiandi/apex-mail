@@ -93,6 +93,11 @@ class MailAccount extends Authenticatable
         return $this->hasMany(PasswordHistory::class);
     }
 
+    public function blockedSenders(): HasMany
+    {
+        return $this->hasMany(BlockedSender::class);
+    }
+
     /**
      * Create default system folders for a newly registered mailbox.
      */
