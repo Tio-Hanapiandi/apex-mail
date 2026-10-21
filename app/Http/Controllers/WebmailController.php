@@ -91,6 +91,16 @@ class WebmailController extends Controller
             }
         }
 
+        if ($request->ajax() || $request->wantsJson()) {
+            return response()->json([
+                'html' => view('webmail.partials.email-list', compact('emails', 'selectedEmail', 'currentFolder', 'query', 'filter'))->render(),
+                'paginationHtml' => $emails->hasPages() ? view('webmail.partials.pagination', compact('emails'))->render() : '',
+                'total' => $emails->total(),
+                'hasPages' => $emails->hasPages(),
+                'query' => $query,
+            ]);
+        }
+
         // GAL contacts for composer auto-complete
         $galContacts = Contact::where('domain_id', $currentAccount->domain_id)
             ->orWhere('is_gal', true)
