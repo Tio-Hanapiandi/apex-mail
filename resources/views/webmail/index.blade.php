@@ -548,30 +548,39 @@
                     
                     <!-- 1. Header Subjek, Metadata & Toolbar Aksi -->
                     <div class="p-4 sm:p-6 space-y-4">
-                        <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-3 sm:gap-4">
-                            <div class="space-y-2 min-w-0">
-                                <h1 class="text-lg sm:text-2xl font-bold text-slate-900 tracking-tight leading-snug break-words">
-                                    {{ $selectedEmail->subject ?: '(Tanpa Subjek)' }}
-                                </h1>
+                        <!-- Baris 1: Area Judul Subjek & Metadata (Full Width Tanpa Terhimpit) -->
+                        <div class="space-y-2">
+                            <h1 class="text-lg sm:text-2xl font-bold text-slate-900 tracking-tight leading-snug break-words">
+                                {{ $selectedEmail->subject ?: '(Tanpa Subjek)' }}
+                            </h1>
+                            
+                            <div class="flex items-center flex-wrap gap-2 text-xs text-slate-500">
+                                <span class="px-2.5 py-1 rounded-lg bg-blue-50 font-semibold text-blue-700 text-[11px] border border-blue-100 flex items-center space-x-1">
+                                    <i data-lucide="folder" class="w-3 h-3 text-blue-600"></i>
+                                    <span>{{ $currentFolder->name ?? 'Kotak Masuk' }}</span>
+                                </span>
                                 
-                                <div class="flex items-center flex-wrap gap-2 text-xs text-slate-500">
-                                    <span class="px-2.5 py-1 rounded-lg bg-blue-50 font-semibold text-blue-700 text-[11px] border border-blue-100 flex items-center space-x-1">
-                                        <i data-lucide="folder" class="w-3 h-3 text-blue-600"></i>
-                                        <span>{{ $currentFolder->name ?? 'Kotak Masuk' }}</span>
-                                    </span>
-                                    
+                                <span>•</span>
+                                
+                                <span class="flex items-center space-x-1 text-slate-600 font-medium">
+                                    <i data-lucide="clock" class="w-3.5 h-3.5 text-slate-400"></i>
+                                    <span>{{ $selectedEmail->sent_at ? $selectedEmail->sent_at->isoFormat('dddd, D MMMM Y • HH:mm') . ' WIB' : 'Waktu tidak diketahui' }}</span>
+                                </span>
+
+                                @if($selectedEmail->has_attachments)
                                     <span>•</span>
-                                    
-                                    <span class="flex items-center space-x-1 text-slate-600 font-medium">
-                                        <i data-lucide="clock" class="w-3.5 h-3.5 text-slate-400"></i>
-                                        <span>{{ $selectedEmail->sent_at ? $selectedEmail->sent_at->isoFormat('dddd, D MMMM Y • HH:mm') . ' WIB' : 'Waktu tidak diketahui' }}</span>
+                                    <span class="inline-flex items-center space-x-1 text-purple-700 font-semibold text-[11px] bg-purple-50 px-2.5 py-0.5 rounded-lg border border-purple-100">
+                                        <i data-lucide="paperclip" class="w-3 h-3 text-purple-600"></i>
+                                        <span>{{ $selectedEmail->attachments->count() }} Lampiran</span>
                                     </span>
-
-                                </div>
+                                @endif
                             </div>
+                        </div>
 
-                            <!-- Action Toolbar Atas -->
-                            <div class="flex items-center space-x-1.5 flex-wrap gap-y-1 flex-shrink-0">
+                        <!-- Baris 2: Bilah Tombol Aksi (Dedicated Action Toolbar Baris Tersendiri) -->
+                        <div class="pt-3 border-t border-slate-100 flex items-center justify-between flex-wrap gap-2">
+                            <!-- Grup Tombol Balasan & Teruskan -->
+                            <div class="flex items-center space-x-2 flex-wrap gap-y-1.5">
                                 <button onclick="scrollToQuickReply(false)" 
                                         class="inline-flex items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 rounded-xl shadow-xs transition-colors"
                                         title="{{ $isSelfSender ? 'Kirim balasan/tindak lanjut ke penerima' : 'Balas ke pengirim saja' }}">
@@ -595,7 +604,10 @@
                                     <i data-lucide="forward" class="w-3.5 h-3.5 text-indigo-600"></i>
                                     <span>Teruskan</span>
                                 </button>
+                            </div>
 
+                            <!-- Grup Tombol Utilitas (Tandai Belum Dibaca, Cetak, Hapus) -->
+                            <div class="flex items-center space-x-1.5 flex-wrap gap-y-1.5">
                                 <button onclick="markCurrentAsUnread({{ $selectedEmail->id }})" 
                                         class="inline-flex items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:text-blue-600 rounded-xl shadow-xs transition-colors"
                                         title="Tandai Belum Dibaca">
@@ -608,7 +620,7 @@
                                     <i data-lucide="printer" class="w-4 h-4"></i>
                                 </button>
 
-                                <form id="deleteEmailDetailForm_{{ $selectedEmail->id }}" action="{{ route('webmail.destroy', $selectedEmail->id) }}" method="POST">
+                                <form id="deleteEmailDetailForm_{{ $selectedEmail->id }}" action="{{ route('webmail.destroy', $selectedEmail->id) }}" method="POST" class="inline">
                                     @csrf
                                     @method('DELETE')
                                     <input type="hidden" name="page" value="{{ request('page') }}">
