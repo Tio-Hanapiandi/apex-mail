@@ -41,6 +41,7 @@ Route::post('/forgot-password/reset', [AuthController::class, 'resetPasswordWith
 // Webmail & Groupware Client Routes (Protected by Auth)
 Route::middleware(['auth'])->group(function () {
     Route::get('/', [WebmailController::class, 'index'])->name('webmail.index');
+    Route::get('/webmail/check-updates', [WebmailController::class, 'checkUpdates'])->name('webmail.check-updates');
     Route::post('/webmail/send', [WebmailController::class, 'send'])->name('webmail.send');
     Route::post('/webmail/quick-reply', [WebmailController::class, 'quickReply'])->name('webmail.quick-reply');
     Route::post('/webmail/batch-action', [WebmailController::class, 'batchAction'])->name('webmail.batch-action');

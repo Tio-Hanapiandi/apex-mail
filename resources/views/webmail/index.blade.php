@@ -103,11 +103,9 @@
                             <i data-lucide="{{ $iconData['name'] }}" class="w-4 h-4 flex-shrink-0 {{ $isActive ? $iconData['color'] : 'text-slate-400 group-hover:text-slate-600' }}"></i>
                             <span class="truncate">{{ $folder->name }}</span>
                         </div>
-                        @if($folder->unread_count > 0)
-                            <span class="px-2 py-0.5 text-[10px] font-bold rounded-full {{ $isActive ? 'bg-blue-600 text-white' : 'bg-blue-100 text-blue-700' }}">
-                                {{ $folder->unread_count }}
-                            </span>
-                        @endif
+                        <span id="folder-unread-{{ $folder->slug }}" class="folder-unread-badge px-2 py-0.5 text-[10px] font-bold rounded-full {{ $isActive ? 'bg-blue-600 text-white' : 'bg-blue-100 text-blue-700' }} {{ $folder->unread_count > 0 ? '' : 'hidden' }}">
+                            {{ $folder->unread_count }}
+                        </span>
                     </a>
                 @endforeach
             </div>
@@ -121,9 +119,7 @@
                         <span class="w-2 h-2 rounded-full bg-blue-600"></span>
                         <span>Belum Dibaca</span>
                     </span>
-                    @if(optional($currentFolder)->unread_count > 0)
-                        <span class="text-[10px] text-blue-600 font-semibold">{{ $currentFolder->unread_count }}</span>
-                    @endif
+                    <span id="filter-unread-count" class="text-[10px] text-blue-600 font-semibold {{ optional($currentFolder)->unread_count > 0 ? '' : 'hidden' }}">{{ optional($currentFolder)->unread_count }}</span>
                 </a>
                 <a href="{{ route('webmail.index', ['folder' => $currentFolder->slug ?? 'inbox', 'filter' => 'starred']) }}" 
                    class="flex items-center space-x-2 px-3 py-1.5 rounded-lg text-xs {{ $activeFilter === 'starred' ? 'bg-amber-50 text-amber-800 font-bold' : 'text-slate-600 hover:bg-slate-100/70' }}">
@@ -207,6 +203,10 @@
                     <span id="emailTotalBadge" class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600">
                         {{ $emails->total() }}
                     </span>
+                    <span class="inline-flex items-center space-x-1 text-[10px] text-emerald-600 font-medium bg-emerald-50 border border-emerald-200/60 px-1.5 py-0.5 rounded-md" title="Sinkronisasi otomatis real-time aktif">
+                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                        <span class="hidden sm:inline">Live</span>
+                    </span>
                 </div>
                 <!-- Tombol Action Kanan Header -->
                 <div class="flex items-center space-x-1">
@@ -216,12 +216,14 @@
                             title="Tulis Pesan Baru">
                         <i data-lucide="edit-3" class="w-4 h-4"></i>
                     </button>
-                    <!-- Tombol Refresh / Sinkronisasi -->
-                    <a href="{{ route('webmail.index', array_filter(['folder' => $currentFolder->slug ?? 'inbox', 'page' => request('page'), 'filter' => $activeFilter !== 'all' ? $activeFilter : null, 'q' => $query])) }}" 
-                       title="Segarkan / Refresh Kotak Masuk"
-                       class="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-slate-100 transition-colors">
-                        <i data-lucide="rotate-cw" class="w-3.5 h-3.5"></i>
-                    </a>
+                    <!-- Tombol Refresh / Sinkronisasi Real-Time -->
+                    <button type="button" 
+                       id="refreshInboxBtn"
+                       onclick="refreshCurrentInbox(true)" 
+                       title="Segarkan / Refresh Kotak Masuk (Real-time)"
+                       class="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-slate-100 transition-colors cursor-pointer">
+                        <i data-lucide="rotate-cw" id="refreshIcon" class="w-3.5 h-3.5 transition-transform"></i>
+                    </button>
                 </div>
             </div>
 
@@ -323,6 +325,18 @@
                 <span class="font-medium text-slate-600">Pilih Semua</span>
             </label>
             <span>Urutkan: <strong>Terbaru</strong></span>
+        </div>
+
+        <!-- Banner Notifikasi Email Baru (Ketika user sedang di page > 1 atau sedang mencari) -->
+        <div id="newEmailNoticeBanner" class="hidden px-3.5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs font-semibold flex items-center justify-between shadow-xs transition-all cursor-pointer hover:from-blue-700 hover:to-indigo-700 select-none" onclick="loadNewEmailsFromBanner()">
+            <div class="flex items-center space-x-2">
+                <span class="relative flex h-2 w-2">
+                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                    <span class="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
+                </span>
+                <span id="newEmailNoticeText">1 email baru diterima</span>
+            </div>
+            <span class="underline text-[11px] font-bold">Muat Sekarang &rarr;</span>
         </div>
 
         <!-- Daftar Email Scrollable (Kartu Bersahabat) -->
@@ -945,6 +959,9 @@
     </div>
 </div>
 
+<!-- Floating Toast Container for Realtime Notifications -->
+<div id="realtimeToastContainer" class="fixed bottom-5 right-5 z-50 flex flex-col space-y-2 max-w-sm pointer-events-none"></div>
+
 @push('scripts')
 <script>
     // 0. Mobile Folder Drawer Controls
@@ -1404,7 +1421,310 @@
         });
     }
 
-    // 5. AJAX Toggle Star
+    // 5. Real-Time Auto-Sync & Automatic Inbound Mail Arrival
+    let autoSyncTimer = null;
+    let autoSyncInFlight = false;
+    let autoSyncController = null;
+    const AUTO_SYNC_INTERVAL_ACTIVE = 9000; // 9 detik saat tab aktif
+    const AUTO_SYNC_INTERVAL_IDLE = 20000;  // 20 detik saat tab di latar belakang
+    let lastSyncTimestamp = Date.now();
+    const originalPageTitle = document.title;
+
+    function getLatestEmailId() {
+        const firstRow = document.querySelector('#emailListContainer .email-row');
+        if (firstRow && firstRow.getAttribute('data-email-id')) {
+            return parseInt(firstRow.getAttribute('data-email-id'), 10) || 0;
+        }
+        return 0;
+    }
+
+    function getKnownTotal() {
+        const badge = document.getElementById('emailTotalBadge');
+        if (badge) {
+            return parseInt(badge.textContent.trim(), 10) || 0;
+        }
+        return 0;
+    }
+
+    function isFirstPage() {
+        const params = new URLSearchParams(window.location.search);
+        const page = params.get('page');
+        return (!page || page === '1');
+    }
+
+    function isSearching() {
+        const sInput = document.getElementById('searchInput');
+        return sInput && sInput.value.trim().length > 0;
+    }
+
+    function playNotificationChime() {
+        try {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            if (!AudioContext) return;
+            const ctx = new AudioContext();
+            const now = ctx.currentTime;
+            
+            const osc1 = ctx.createOscillator();
+            const gain1 = ctx.createGain();
+            osc1.type = 'sine';
+            osc1.frequency.setValueAtTime(659.25, now);
+            gain1.gain.setValueAtTime(0.08, now);
+            gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+            osc1.connect(gain1);
+            gain1.connect(ctx.destination);
+            osc1.start(now);
+            osc1.stop(now + 0.35);
+
+            const osc2 = ctx.createOscillator();
+            const gain2 = ctx.createGain();
+            osc2.type = 'sine';
+            osc2.frequency.setValueAtTime(783.99, now + 0.12);
+            gain2.gain.setValueAtTime(0.09, now + 0.12);
+            gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
+            osc2.connect(gain2);
+            gain2.connect(ctx.destination);
+            osc2.start(now + 0.12);
+            osc2.stop(now + 0.55);
+        } catch (e) {}
+    }
+
+    function showNewEmailToast(newestEmail, newCount) {
+        if (!newestEmail) return;
+        const container = document.getElementById('realtimeToastContainer');
+        if (!container) return;
+
+        const toast = document.createElement('div');
+        toast.className = 'pointer-events-auto bg-slate-900/95 text-white p-3.5 rounded-2xl shadow-2xl border border-slate-700/60 flex items-start space-x-3 transition-all duration-300 transform translate-y-4 opacity-0 cursor-pointer hover:bg-slate-800';
+        toast.innerHTML = `
+            <div class="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center flex-shrink-0 mt-0.5 shadow-sm shadow-blue-500/40">
+                <i data-lucide="mail" class="w-4 h-4"></i>
+            </div>
+            <div class="flex-1 min-w-0 pr-1">
+                <div class="flex items-center justify-between">
+                    <span class="text-[10px] font-bold uppercase tracking-wider text-blue-400">
+                        ${newCount > 1 ? `${newCount} Email Baru Masuk` : 'Email Baru Masuk'}
+                    </span>
+                    <span class="text-[10px] text-slate-400">Baru saja</span>
+                </div>
+                <p class="text-xs font-bold text-white truncate mt-0.5">${newestEmail.from}</p>
+                <p class="text-xs text-slate-300 truncate">${newestEmail.subject}</p>
+            </div>
+            <button type="button" onclick="event.stopPropagation(); this.parentElement.remove()" class="text-slate-400 hover:text-white p-1 rounded-lg">
+                <i data-lucide="x" class="w-3.5 h-3.5"></i>
+            </button>
+        `;
+
+        toast.onclick = () => {
+            toast.remove();
+            refreshCurrentInbox(true);
+        };
+
+        container.appendChild(toast);
+        if (window.lucide) window.lucide.createIcons();
+
+        setTimeout(() => {
+            toast.classList.remove('translate-y-4', 'opacity-0');
+        }, 20);
+
+        setTimeout(() => {
+            toast.classList.add('translate-y-4', 'opacity-0');
+            setTimeout(() => toast.remove(), 300);
+        }, 6000);
+    }
+
+    function triggerDesktopNotification(newestEmail, newCount) {
+        if (!newestEmail) return;
+        if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
+            try {
+                new Notification(newCount > 1 ? `${newCount} Email Baru Diterima` : `Email Baru dari ${newestEmail.from}`, {
+                    body: newestEmail.subject,
+                    icon: '/favicon.ico'
+                });
+            } catch (e) {}
+        }
+    }
+
+    function loadNewEmailsFromBanner() {
+        const noticeBanner = document.getElementById('newEmailNoticeBanner');
+        if (noticeBanner) noticeBanner.classList.add('hidden');
+        clearLiveSearch();
+        refreshCurrentInbox(true);
+    }
+
+    function refreshCurrentInbox(isManual = false) {
+        checkMailboxUpdates(isManual);
+    }
+
+    function checkMailboxUpdates(isManual = false) {
+        if (autoSyncInFlight && !isManual) return;
+
+        const currentFolder = "{{ $currentFolder->slug ?? 'inbox' }}";
+        const currentFilter = "{{ $activeFilter }}";
+        const lastEmailId = getLatestEmailId();
+        const knownTotal = getKnownTotal();
+        const currentSearch = (typeof getCurrentSearchQuery === 'function') ? getCurrentSearchQuery() : (document.getElementById('searchInput') ? document.getElementById('searchInput').value.trim() : '');
+        const selectedEmailId = "{{ $selectedEmail->id ?? '' }}";
+
+        const refreshIcon = document.getElementById('refreshIcon');
+        if (isManual && refreshIcon) {
+            refreshIcon.classList.add('animate-spin');
+        }
+
+        const params = new URLSearchParams();
+        if (currentFolder) params.set('folder', currentFolder);
+        if (currentFilter && currentFilter !== 'all') params.set('filter', currentFilter);
+        if (currentSearch) params.set('q', currentSearch);
+        if (lastEmailId > 0) params.set('last_email_id', lastEmailId);
+        params.set('known_total', knownTotal);
+        if (selectedEmailId) params.set('selected_email_id', selectedEmailId);
+        if (isManual) params.set('force', '1');
+
+        autoSyncInFlight = true;
+        if (autoSyncController) autoSyncController.abort();
+        autoSyncController = new AbortController();
+
+        fetch(`{{ route('webmail.check-updates') }}?${params.toString()}`, {
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'Accept': 'application/json'
+            },
+            signal: autoSyncController.signal
+        })
+        .then(res => {
+            if (!res.ok) throw new Error('Sync response error');
+            return res.json();
+        })
+        .then(data => {
+            lastSyncTimestamp = Date.now();
+
+            // 1. Update Folder Unread Badges in Sidebar
+            if (data.folder_unreads) {
+                for (const [slug, count] of Object.entries(data.folder_unreads)) {
+                    const badge = document.getElementById(`folder-unread-${slug}`);
+                    if (badge) {
+                        badge.textContent = count;
+                        if (count > 0) {
+                            badge.classList.remove('hidden');
+                        } else {
+                            badge.classList.add('hidden');
+                        }
+                    }
+                }
+            }
+
+            // 2. Update Quick Filter unread count
+            const filterUnreadBadge = document.getElementById('filter-unread-count');
+            if (filterUnreadBadge && data.folder_unreads) {
+                const curCount = data.folder_unreads[currentFolder] || 0;
+                filterUnreadBadge.textContent = curCount;
+                if (curCount > 0) {
+                    filterUnreadBadge.classList.remove('hidden');
+                } else {
+                    filterUnreadBadge.classList.add('hidden');
+                }
+            }
+
+            // 3. Update Document Title with unread count
+            const unreadForTitle = data.inbox_unread || 0;
+            if (unreadForTitle > 0) {
+                document.title = `(${unreadForTitle}) ${originalPageTitle.replace(/^\(\d+\)\s*/, '')}`;
+            } else {
+                document.title = originalPageTitle.replace(/^\(\d+\)\s*/, '');
+            }
+
+            // 4. If data changed
+            if (data.changed) {
+                const listContainer = document.getElementById('emailListContainer');
+                const paginationContainer = document.getElementById('emailPaginationContainer');
+                const totalBadge = document.getElementById('emailTotalBadge');
+                const noticeBanner = document.getElementById('newEmailNoticeBanner');
+                const noticeText = document.getElementById('newEmailNoticeText');
+
+                if (!isFirstPage() || isSearching()) {
+                    if (noticeBanner && noticeText) {
+                        noticeText.textContent = data.new_count > 1 ? `${data.new_count} email baru masuk di folder ini` : '1 email baru masuk di folder ini';
+                        noticeBanner.classList.remove('hidden');
+                    }
+                } else {
+                    if (noticeBanner) noticeBanner.classList.add('hidden');
+                    if (listContainer && data.html) {
+                        listContainer.innerHTML = data.html;
+                    }
+                    if (paginationContainer) {
+                        paginationContainer.innerHTML = data.paginationHtml || '';
+                    }
+                    if (totalBadge) {
+                        totalBadge.textContent = data.total;
+                    }
+
+                    // Smooth highlight on newly arrived top email row
+                    const firstRow = document.querySelector('#emailListContainer .email-row');
+                    if (firstRow && data.has_new) {
+                        firstRow.classList.add('bg-blue-100/70', 'transition-colors', 'duration-1000');
+                        setTimeout(() => {
+                            firstRow.classList.remove('bg-blue-100/70');
+                        }, 2500);
+                    }
+
+                    if (window.lucide) window.lucide.createIcons();
+                }
+
+                if (data.has_new && data.newest_email) {
+                    playNotificationChime();
+                    showNewEmailToast(data.newest_email, data.new_count);
+                    triggerDesktopNotification(data.newest_email, data.new_count);
+                }
+            }
+        })
+        .catch(err => {
+            if (err.name !== 'AbortError') {
+                // Silent catch
+            }
+        })
+        .finally(() => {
+            autoSyncInFlight = false;
+            if (refreshIcon) {
+                setTimeout(() => refreshIcon.classList.remove('animate-spin'), 300);
+            }
+        });
+    }
+
+    function startAutoSyncTimer() {
+        stopAutoSyncTimer();
+        const interval = document.hidden ? AUTO_SYNC_INTERVAL_IDLE : AUTO_SYNC_INTERVAL_ACTIVE;
+        autoSyncTimer = setInterval(() => {
+            checkMailboxUpdates(false);
+        }, interval);
+    }
+
+    function stopAutoSyncTimer() {
+        if (autoSyncTimer) {
+            clearInterval(autoSyncTimer);
+            autoSyncTimer = null;
+        }
+    }
+
+    document.addEventListener('visibilitychange', () => {
+        startAutoSyncTimer();
+        if (!document.hidden && Date.now() - lastSyncTimestamp > AUTO_SYNC_INTERVAL_ACTIVE) {
+            checkMailboxUpdates(false);
+        }
+    });
+
+    document.addEventListener('click', () => {
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission();
+        }
+    }, { once: true });
+
+    document.addEventListener('DOMContentLoaded', () => {
+        startAutoSyncTimer();
+    });
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        startAutoSyncTimer();
+    }
+
+    // 6. AJAX Toggle Star
     function toggleStarAjax(id, btn) {
         fetch(`/webmail/${id}/toggle-star`, {
             method: 'POST',
@@ -1428,7 +1748,7 @@
         });
     }
 
-    // 6. AJAX Toggle Read/Unread
+    // 7. AJAX Toggle Read/Unread
     function toggleReadAjax(id, btn) {
         fetch(`/webmail/${id}/toggle-read`, {
             method: 'POST',
@@ -1445,7 +1765,7 @@
         });
     }
 
-    // 7. Batch Actions & Selection
+    // 8. Batch Actions & Selection
     function updateBatchBar() {
         const checkboxes = document.querySelectorAll('.email-checkbox:checked');
         const count = checkboxes.length;
@@ -1539,7 +1859,7 @@
         });
     }
 
-    // 8. Quick Reply Attachments
+    // 9. Quick Reply Attachments
     function handleReplyFilesChange(input) {
         const container = document.getElementById('replyFileList');
         const badge = document.getElementById('replyAttachBadge');

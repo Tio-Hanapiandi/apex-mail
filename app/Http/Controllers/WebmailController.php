@@ -119,6 +119,126 @@ class WebmailController extends Controller
     }
 
     /**
+     * Check for new incoming emails and real-time mailbox updates.
+     */
+    public function checkUpdates(Request $request)
+    {
+        $currentAccount = $this->getActiveAccount();
+
+        // 1. Gather all folder unread counts
+        $folders = $currentAccount->folders()->withCount(['emails as unread_count' => function ($q) {
+            $q->where('is_read', false);
+        }])->get();
+
+        $folderUnreads = [];
+        $inboxUnread = 0;
+        foreach ($folders as $f) {
+            $folderUnreads[$f->slug] = (int) $f->unread_count;
+            if ($f->slug === 'inbox') {
+                $inboxUnread = (int) $f->unread_count;
+            }
+        }
+
+        $folderSlug = $request->query('folder', 'inbox');
+        $currentFolder = $folders->firstWhere('slug', $folderSlug) ?? $folders->first();
+
+        // 2. Query for current folder/filter
+        $emailsQuery = $currentFolder ? $currentFolder->emails() : Email::where('mail_account_id', $currentAccount->id);
+
+        $query = $request->query('q');
+        if ($query) {
+            $emailsQuery->where(function ($q) use ($query) {
+                $q->where('subject', 'like', "%{$query}%")
+                  ->orWhere('from_name', 'like', "%{$query}%")
+                  ->orWhere('from_email', 'like', "%{$query}%")
+                  ->orWhere('snippet', 'like', "%{$query}%")
+                  ->orWhere('body_text', 'like', "%{$query}%");
+            });
+        }
+
+        $filter = $request->query('filter', 'all');
+        if ($filter === 'unread') {
+            $emailsQuery->where('is_read', false);
+        } elseif ($filter === 'starred') {
+            $emailsQuery->where('is_starred', true);
+        } elseif ($filter === 'attachments') {
+            $emailsQuery->where('has_attachments', true);
+        }
+
+        $total = (clone $emailsQuery)->count();
+        $latestEmail = (clone $emailsQuery)->orderBy('id', 'desc')->first();
+        $latestId = $latestEmail ? $latestEmail->id : 0;
+
+        $lastEmailId = $request->query('last_email_id');
+        $knownTotal = $request->query('known_total');
+
+        // Check if there are newly arrived emails since the last known ID
+        $newCount = 0;
+        $newestEmail = null;
+        if ($lastEmailId && (int)$latestId > (int)$lastEmailId) {
+            $newCount = (clone $emailsQuery)->where('id', '>', (int)$lastEmailId)->count();
+            if ($newCount > 0) {
+                $newestEmail = (clone $emailsQuery)->where('id', '>', (int)$lastEmailId)->orderBy('id', 'desc')->first();
+            }
+        }
+
+        $hasChanged = true;
+        if ($lastEmailId !== null && $knownTotal !== null) {
+            if ((int)$lastEmailId === (int)$latestId && (int)$knownTotal === (int)$total) {
+                $hasChanged = false;
+            }
+        }
+
+        // If nothing changed and client did not force a full refresh, return compact lightweight response
+        if (!$hasChanged && !$request->boolean('force')) {
+            return response()->json([
+                'success' => true,
+                'changed' => false,
+                'has_new' => false,
+                'new_count' => 0,
+                'latest_id' => $latestId,
+                'total' => $total,
+                'folder_unreads' => $folderUnreads,
+                'inbox_unread' => $inboxUnread,
+            ]);
+        }
+
+        // Render updated view partials
+        $emails = $emailsQuery->orderBy('sent_at', 'desc')->paginate(25);
+        $selectedEmailId = $request->query('selected_email_id');
+        $selectedEmail = $selectedEmailId ? Email::find($selectedEmailId) : null;
+
+        $html = view('webmail.partials.email-list', [
+            'emails' => $emails,
+            'selectedEmail' => $selectedEmail,
+            'currentFolder' => $currentFolder,
+            'query' => $query,
+            'filter' => $filter,
+        ])->render();
+
+        $paginationHtml = $emails->hasPages() ? view('webmail.partials.pagination', compact('emails'))->render() : '';
+
+        return response()->json([
+            'success' => true,
+            'changed' => true,
+            'has_new' => $newCount > 0,
+            'new_count' => $newCount,
+            'newest_email' => $newestEmail ? [
+                'id' => $newestEmail->id,
+                'from' => $newestEmail->from_name ?: $newestEmail->from_email,
+                'subject' => $newestEmail->subject ?: '(Tanpa Subjek)',
+                'snippet' => $newestEmail->snippet ?: '',
+            ] : null,
+            'latest_id' => $latestId,
+            'total' => $total,
+            'folder_unreads' => $folderUnreads,
+            'inbox_unread' => $inboxUnread,
+            'html' => $html,
+            'paginationHtml' => $paginationHtml,
+        ]);
+    }
+
+    /**
      * Send email via Brevo / SMTP Relay.
      */
     public function send(Request $request)
