@@ -203,10 +203,6 @@
                     <span id="emailTotalBadge" class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600">
                         {{ $emails->total() }}
                     </span>
-                    <span class="inline-flex items-center space-x-1 text-[10px] text-emerald-600 font-medium bg-emerald-50 border border-emerald-200/60 px-1.5 py-0.5 rounded-md" title="Sinkronisasi otomatis real-time aktif">
-                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                        <span class="hidden sm:inline">Live</span>
-                    </span>
                 </div>
                 <!-- Tombol Action Kanan Header -->
                 <div class="flex items-center space-x-1">

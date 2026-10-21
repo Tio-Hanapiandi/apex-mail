@@ -1,2 +1,10 @@
 User-agent: *
-Disallow:
+Allow: /
+Allow: /login
+Allow: /forgot-password
+Disallow: /admin/
+Disallow: /webmail/
+Disallow: /security/
+Disallow: /settings/
+Disallow: /api/
+Disallow: /captcha/
