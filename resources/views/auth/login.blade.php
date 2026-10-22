@@ -38,7 +38,7 @@
                 <i data-lucide="mail" class="w-6 h-6"></i>
             </div>
             <h1 class="text-2xl font-bold tracking-tight text-slate-900">Apex<span class="text-blue-600">Mail</span></h1>
-            <p class="text-xs text-slate-500">Corporate Webmail Client & Collaboration Suite</p>
+            <p class="text-xs text-slate-500">Smart Communication, Faster Workflows</p>
         </div>
 
         <!-- Card Login Form -->
