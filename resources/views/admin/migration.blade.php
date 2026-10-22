@@ -238,9 +238,15 @@
 
                         <!-- Unggah File CSV -->
                         <div>
-                            <label class="block text-xs font-semibold text-slate-700 mb-1">
-                                Berkas CSV Akun
-                            </label>
+                            <div class="flex items-center justify-between mb-1">
+                                <label class="block text-xs font-semibold text-slate-700">
+                                    Berkas CSV Akun
+                                </label>
+                                <a href="{{ route('admin.accounts.template') }}" class="text-[10px] text-emerald-600 hover:text-emerald-800 hover:underline flex items-center space-x-1">
+                                    <i data-lucide="file-spreadsheet" class="w-3 h-3"></i>
+                                    <span>Unduh Template CSV</span>
+                                </a>
+                            </div>
                             <input type="file" name="csv_file" accept=".csv,.txt"
                                    class="block w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100">
                         </div>

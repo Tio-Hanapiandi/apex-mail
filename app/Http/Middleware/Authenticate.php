@@ -16,10 +16,6 @@ class Authenticate extends Middleware
             return null;
         }
 
-        if ($request->is('admin') || $request->is('admin/*')) {
-            abort(403, 'Akses ditolak.');
-        }
-
         return route('login');
     }
 }

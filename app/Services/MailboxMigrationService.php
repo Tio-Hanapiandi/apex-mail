@@ -697,6 +697,17 @@ class MailboxMigrationService
             $adminIdx = array_search('admin', $headers);
         }
 
+        $recoveryIdx = array_search('recovery_email', $headers);
+        if ($recoveryIdx === false) {
+            foreach (['recovery', 'email pemulihan', 'pemulihan'] as $alias) {
+                $idx = array_search($alias, $headers);
+                if ($idx !== false) {
+                    $recoveryIdx = $idx;
+                    break;
+                }
+            }
+        }
+
         $createdCount = 0;
         $updatedCount = 0;
         $skippedCount = 0;
@@ -732,6 +743,11 @@ class MailboxMigrationService
                 $isAdmin = in_array($val, ['1', 'true', 'yes', 'ya']);
             }
 
+            $recoveryEmail = ($recoveryIdx !== false && !empty($row[$recoveryIdx])) ? trim($row[$recoveryIdx]) : null;
+            if ($recoveryEmail && !filter_var($recoveryEmail, FILTER_VALIDATE_EMAIL)) {
+                $recoveryEmail = null;
+            }
+
             // Resolve domain
             $domainPart = explode('@', $email)[1] ?? '';
             $domain = Domain::where('name', $domainPart)->first();
@@ -743,6 +759,9 @@ class MailboxMigrationService
                 if ($options['update_existing'] ?? false) {
                     $existing->display_name = $displayName;
                     $existing->quota_bytes = $quotaBytes;
+                    if ($recoveryEmail) {
+                        $existing->recovery_email = $recoveryEmail;
+                    }
                     if (!empty($row[$passwordIdx])) {
                         $existing->password = Hash::make($password);
                     }
@@ -760,6 +779,7 @@ class MailboxMigrationService
                     'username' => explode('@', $email)[0],
                     'email' => $email,
                     'display_name' => $displayName,
+                    'recovery_email' => $recoveryEmail,
                     'password' => Hash::make($password),
                     'quota_bytes' => $quotaBytes,
                     'used_bytes' => 0,

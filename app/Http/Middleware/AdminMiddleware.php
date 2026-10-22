@@ -15,7 +15,7 @@ class AdminMiddleware
     public function handle(Request $request, Closure $next): Response
     {
         if (!Auth::check()) {
-            abort(403, 'Akses ditolak.');
+            return redirect()->route('login');
         }
 
         if (!Auth::user()->is_admin) {

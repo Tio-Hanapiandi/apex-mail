@@ -851,17 +851,62 @@ class AdminController extends Controller
     }
 
     /**
+     * Download CSV template for bulk user accounts creation (compatible with Excel).
+     */
+    public function downloadAccountTemplate(Request $request)
+    {
+        $domainId = $request->query('domain_id');
+        $domain = $domainId ? Domain::find($domainId) : Domain::first();
+        $domainName = $domain ? $domain->name : 'perusahaan.com';
+
+        $filename = "template_akun_apexmail.csv";
+
+        $headers = [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => "attachment; filename=\"{$filename}\"",
+            'Pragma' => 'no-cache',
+            'Cache-Control' => 'must-revalidate, post-check=0, pre-check=0',
+            'Expires' => '0',
+        ];
+
+        $callback = function () use ($domainName) {
+            $handle = fopen('php://output', 'w');
+
+            // Add UTF-8 BOM for Microsoft Excel auto-detect
+            fputs($handle, "\xEF\xBB\xBF");
+
+            // Header row
+            fputcsv($handle, ['email', 'display_name', 'password', 'quota_mb', 'recovery_email', 'is_admin']);
+
+            // Sample rows with realistic corporate data
+            fputcsv($handle, ["ahmad.wijaya@{$domainName}", 'Ahmad Wijaya', 'SandiKuat2026!', '2048', 'ahmad.personal@gmail.com', '0']);
+            fputcsv($handle, ["siti.aminah@{$domainName}", 'Siti Aminah', 'SandiKuat2026!', '1024', 'siti.personal@gmail.com', '0']);
+            fputcsv($handle, ["budi.santoso@{$domainName}", 'Budi Santoso', 'SandiKuat2026!', '2048', 'budi.personal@gmail.com', '0']);
+            fputcsv($handle, ["it.admin@{$domainName}", 'IT Administrator', 'SandiKuat2026!', '5120', 'it.backup@gmail.com', '1']);
+
+            fclose($handle);
+        };
+
+        return response()->stream($callback, 200, $headers);
+    }
+
+    /**
      * Process bulk user accounts import from CSV.
      */
     public function importAccounts(Request $request)
     {
         $request->validate([
-            'domain_id' => 'required|exists:domains,id',
+            'domain_id' => 'nullable|exists:domains,id',
             'csv_file' => 'nullable|file|mimes:csv,txt|max:10240',
             'csv_text' => 'nullable|string',
             'default_password' => 'nullable|string|min:6',
             'update_existing' => 'nullable|boolean',
         ]);
+
+        $defaultDomain = $request->domain_id ? Domain::find($request->domain_id) : Domain::first();
+        if (!$defaultDomain) {
+            return back()->with('error', 'Tidak ada domain aktif yang ditemukan di sistem. Silakan buat domain terlebih dahulu.');
+        }
 
         $csvContent = '';
         if ($request->hasFile('csv_file')) {
@@ -875,14 +920,14 @@ class AdminController extends Controller
         try {
             $result = $this->migrationService->importAccountsFromCsv(
                 $csvContent,
-                $request->domain_id,
+                $defaultDomain->id,
                 [
                     'default_password' => $request->default_password ?: 'Password123!',
                     'update_existing' => $request->boolean('update_existing', false),
                 ]
             );
 
-            $msg = "Impor akun selesai! Dibuat: {$result['created_count']}, " .
+            $msg = "Impor massal akun selesai! Dibuat: {$result['created_count']}, " .
                    "Diperbarui: {$result['updated_count']}, " .
                    "Dilewati: {$result['skipped_count']}, " .
                    "Gagal: {$result['failed_count']}.";
@@ -893,7 +938,7 @@ class AdminController extends Controller
 
             return back()->with('success', $msg);
         } catch (Exception $e) {
-            return back()->with('error', 'Gagal memproses CSV akun: ' . $e->getMessage());
+            return back()->with('error', 'Gagal memproses berkas akun: ' . $e->getMessage());
         }
     }
 

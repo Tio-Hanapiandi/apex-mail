@@ -77,8 +77,10 @@ Route::prefix('admin')->name('admin.')->middleware(['auth', 'admin'])->group(fun
     // Password Security Policy Settings
     Route::post('/settings/password-policy', [AdminController::class, 'updatePasswordPolicy'])->name('password-policy.update');
 
-    // Manage Accounts (CRUD, Reset Password, Suspend, Update)
+    // Manage Accounts (CRUD, Reset Password, Suspend, Update, Bulk Import & Template)
     Route::get('/accounts', [AdminController::class, 'accounts'])->name('accounts');
+    Route::get('/accounts/template', [AdminController::class, 'downloadAccountTemplate'])->name('accounts.template');
+    Route::post('/accounts/import', [AdminController::class, 'importAccounts'])->name('accounts.import');
     Route::post('/accounts', [AdminController::class, 'storeAccount'])->name('accounts.store');
     Route::put('/accounts/{id}', [AdminController::class, 'updateAccount'])->name('accounts.update');
     Route::post('/accounts/{id}/toggle-status', [AdminController::class, 'toggleAccountStatus'])->name('accounts.toggle-status');

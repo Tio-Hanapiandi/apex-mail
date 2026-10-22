@@ -42,6 +42,37 @@
             </div>
         </div>
 
+        <!-- Bulk Action & Template Bar -->
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 bg-white rounded-2xl border border-slate-200 shadow-xs">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100 flex items-center justify-center flex-shrink-0">
+                    <i data-lucide="users" class="w-5 h-5"></i>
+                </div>
+                <div>
+                    <h2 class="text-sm font-bold text-slate-900 tracking-tight">Penambahan Akun Email Massal (Bulk Accounts)</h2>
+                    <p class="text-xs text-slate-500">Unduh template Excel/CSV untuk diisi nama akun email sekaligus, lalu upload berkas untuk pembuatan otomatis serentak.</p>
+                </div>
+            </div>
+
+            <div class="flex items-center space-x-2 flex-wrap gap-y-2">
+                <!-- Button Download Template -->
+                <a href="{{ route('admin.accounts.template') }}" 
+                   class="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-semibold shadow-xs transition-colors"
+                   title="Unduh format template Excel/CSV untuk diisi nama akun email">
+                    <i data-lucide="file-spreadsheet" class="w-4 h-4 text-emerald-600"></i>
+                    <span>Unduh Template Excel/CSV</span>
+                </a>
+
+                <!-- Button Upload File Sesuai Template -->
+                <button type="button" onclick="openBulkImportModal()" 
+                        class="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm shadow-blue-500/25 transition-colors cursor-pointer"
+                        title="Upload file CSV/Excel yang telah diisi sesuai template">
+                    <i data-lucide="upload-cloud" class="w-4 h-4"></i>
+                    <span>Upload & Buat Akun Massal</span>
+                </button>
+            </div>
+        </div>
+
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
             <!-- Form Buat Akun Baru -->
@@ -296,8 +327,108 @@
     </div>
 </div>
 
+<!-- Modal Upload File Akun Massal -->
+<div id="bulkImportModal" class="hidden fixed inset-0 z-50 items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs transition-opacity duration-200">
+    <div class="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-200 p-6 space-y-5">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+            <div class="flex items-center space-x-2.5">
+                <div class="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                    <i data-lucide="upload-cloud" class="w-5 h-5"></i>
+                </div>
+                <div>
+                    <h3 class="text-sm font-bold text-slate-900">Upload Berkas Akun Massal</h3>
+                    <p class="text-xs text-slate-500">Unggah berkas CSV/Excel yang telah diisi sesuai template.</p>
+                </div>
+            </div>
+            <button type="button" onclick="closeBulkImportModal()" class="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors">
+                <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+        </div>
+
+        <form action="{{ route('admin.accounts.import') }}" method="POST" enctype="multipart/form-data" class="space-y-4">
+            @csrf
+            
+            <!-- Quick Link to Download Template if not downloaded yet -->
+            <div class="p-3 bg-emerald-50/70 border border-emerald-100 rounded-xl flex items-center justify-between text-xs text-emerald-800">
+                <div class="flex items-center space-x-2">
+                    <i data-lucide="file-spreadsheet" class="w-4 h-4 text-emerald-600 flex-shrink-0"></i>
+                    <span>Belum memiliki format berkas?</span>
+                </div>
+                <a href="{{ route('admin.accounts.template') }}" class="font-semibold text-emerald-700 hover:text-emerald-900 hover:underline flex items-center space-x-1">
+                    <span>Unduh Template</span>
+                    <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                </a>
+            </div>
+
+            <!-- File Upload Input -->
+            <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1.5">Pilih Berkas CSV / Excel (*.csv, *.txt):</label>
+                <input type="file" name="csv_file" accept=".csv,.txt" required
+                       class="block w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 border border-slate-200 rounded-xl p-1 bg-slate-50 cursor-pointer">
+                <p class="text-[11px] text-slate-400 mt-1">Dapat berupa berkas CSV yang diekspor dari Microsoft Excel atau Google Sheets.</p>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <!-- Default Domain -->
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Domain Utama (Fallback):</label>
+                    <select name="domain_id" class="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium">
+                        @foreach($domains as $dom)
+                            <option value="{{ $dom->id }}">{{ $dom->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+
+                <!-- Default Password -->
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Kata Sandi Default (Opsional):</label>
+                    <input type="text" name="default_password" value="Password123!" placeholder="Password123!"
+                           class="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono">
+                </div>
+            </div>
+
+            <!-- Update Existing Checkbox -->
+            <div class="pt-1">
+                <label class="inline-flex items-center space-x-2 cursor-pointer">
+                    <input type="checkbox" name="update_existing" value="1" class="rounded text-blue-600 focus:ring-blue-500 w-4 h-4">
+                    <span class="text-xs text-slate-700">Perbarui data nama/kuota jika alamat email sudah terdaftar</span>
+                </label>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="pt-2 grid grid-cols-2 gap-3 border-t border-slate-100">
+                <button type="button" onclick="closeBulkImportModal()" 
+                        class="py-2.5 px-4 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors">
+                    Batal
+                </button>
+                <button type="submit" 
+                        class="py-2.5 px-4 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-sm shadow-blue-500/25 transition-all flex items-center justify-center space-x-1.5 cursor-pointer">
+                    <i data-lucide="check" class="w-4 h-4"></i>
+                    <span>Upload & Buat Akun</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
 @push('scripts')
 <script>
+    function openBulkImportModal() {
+        const modal = document.getElementById('bulkImportModal');
+        if (modal) {
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            if (window.lucide) lucide.createIcons();
+        }
+    }
+
+    function closeBulkImportModal() {
+        const modal = document.getElementById('bulkImportModal');
+        if (modal) {
+            modal.classList.remove('flex');
+            modal.classList.add('hidden');
+        }
+    }
     function openEditAccountModal(id, email, displayName, recoveryEmail, quotaGb, twoFactorEnabled) {
         document.getElementById('editAccountEmail').textContent = email;
         document.getElementById('editDisplayName').value = displayName;

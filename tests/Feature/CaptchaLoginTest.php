@@ -155,10 +155,10 @@ class CaptchaLoginTest extends TestCase
         $this->assertAuthenticatedAs($this->admin);
     }
 
-    public function test_unauthenticated_access_to_admin_is_forbidden()
+    public function test_unauthenticated_access_to_admin_redirects_to_login()
     {
         $response = $this->get('/admin');
-        $response->assertStatus(403);
+        $response->assertRedirect(route('login'));
     }
 
     public function test_authenticated_admin_can_access_admin_dashboard()
