@@ -50,7 +50,7 @@
                     <div class="relative">
                         <i data-lucide="at-sign" class="w-4 h-4 absolute left-3 top-3 text-slate-400"></i>
                         <input type="email" name="email" value="{{ old('email', request('email')) }}" required autofocus autocomplete="off"
-                               placeholder="kucing@azkario.biz.id atau email pemulihan"
+                               placeholder="Masukkan email"
                                class="w-full pl-9 pr-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white text-slate-800 font-medium transition-all">
                     </div>
                     <p class="text-[11px] text-slate-400 mt-1.5 flex items-center">
