@@ -571,7 +571,7 @@ class MailRelayService
                         ['name' => 'Kotak Masuk', 'icon' => 'inbox', 'color' => '#2563EB', 'is_system' => true]
                     );
 
-                    $inboxFolder->emails()->create([
+                    $deliveredLocalEmail = $inboxFolder->emails()->create([
                         'mail_account_id' => $localAccount->id,
                         'message_id' => $sentEmailRecord->message_id,
                         'from_name' => $fromName,
@@ -590,6 +590,18 @@ class MailRelayService
                         'sent_at' => Carbon::now(),
                         'received_at' => Carbon::now(),
                     ]);
+
+                    // Attach attachment records to delivered recipient email
+                    foreach ($attachments as $att) {
+                        if (is_array($att) && isset($att['name'], $att['path'])) {
+                            $deliveredLocalEmail->attachments()->create([
+                                'filename' => $att['name'],
+                                'content_type' => $att['mime'] ?? 'application/octet-stream',
+                                'size_bytes' => $att['size'] ?? (file_exists($att['path']) ? filesize($att['path']) : 0),
+                                'storage_path' => $att['path'],
+                            ]);
+                        }
+                    }
 
                     $inboxFolder->increment('unread_count');
                 }
@@ -667,8 +679,9 @@ class MailRelayService
 
             // Attach existing attachments
             foreach ($email->attachments as $att) {
-                if ($att->storage_path && file_exists($att->storage_path)) {
-                    $message->attachFromPath($att->storage_path, $att->filename, $att->content_type);
+                $attPath = $att->real_path;
+                if ($attPath && file_exists($attPath)) {
+                    $message->attachFromPath($attPath, $att->filename, $att->content_type);
                 }
             }
 

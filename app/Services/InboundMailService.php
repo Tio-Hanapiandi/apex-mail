@@ -761,8 +761,12 @@ class InboundMailService
             $forwardAttachments = [];
             foreach ($savedAttachments as $att) {
                 if (!empty($att['storage_path'])) {
-                    $fullPath = storage_path('app/' . $att['storage_path']);
-                    if (file_exists($fullPath)) {
+                    $candidate = $att['storage_path'];
+                    $fullPath = file_exists($candidate)
+                        ? $candidate
+                        : (file_exists(storage_path('app/' . $candidate)) ? storage_path('app/' . $candidate) : null);
+
+                    if ($fullPath) {
                         $forwardAttachments[] = [
                             'name' => $att['filename'],
                             'mime' => $att['content_type'],
@@ -775,8 +779,8 @@ class InboundMailService
 
             if (empty($forwardAttachments) && $emailRecord->attachments()->count() > 0) {
                 foreach ($emailRecord->attachments as $ea) {
-                    $fullPath = storage_path('app/' . $ea->storage_path);
-                    if (file_exists($fullPath)) {
+                    $fullPath = $ea->real_path;
+                    if ($fullPath && file_exists($fullPath)) {
                         $forwardAttachments[] = [
                             'name' => $ea->filename,
                             'mime' => $ea->content_type,

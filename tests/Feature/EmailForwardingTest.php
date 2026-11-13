@@ -218,4 +218,85 @@ class EmailForwardingTest extends TestCase
         $response->assertSee('window.currentEmailForward', false);
         $response->assertSee('Fwd: Penawaran Kerjasama Bisnis');
     }
+
+    public function test_forward_email_with_existing_attachment_attaches_file_and_delivers(): void
+    {
+        Storage::fake('local');
+
+        // Create an existing attachment file in fake disk
+        $sampleContent = 'Sample PDF Content For Forwarding Test';
+        $relPath = 'mail_attachments/test_invoice.pdf';
+        Storage::disk('local')->put($relPath, $sampleContent);
+        $fullPath = Storage::disk('local')->path($relPath);
+
+        // Original incoming email
+        $originalEmail = $this->inbox->emails()->create([
+            'mail_account_id' => $this->account->id,
+            'message_id' => '<orig-100@client.com>',
+            'from_name' => 'Supplier Co',
+            'from_email' => 'finance@supplier.com',
+            'to' => [['email' => 'budi@mybbs.id', 'name' => 'Budi Santoso']],
+            'subject' => 'Tagihan Invoice #1029',
+            'body_text' => 'Berikut terlampir dokumen invoice.',
+            'body_html' => '<p>Berikut terlampir dokumen invoice.</p>',
+            'has_attachments' => true,
+            'sent_at' => now(),
+            'received_at' => now(),
+        ]);
+
+        $attachment = $originalEmail->attachments()->create([
+            'filename' => 'invoice_1029.pdf',
+            'content_type' => 'application/pdf',
+            'size_bytes' => strlen($sampleContent),
+            'storage_path' => $fullPath,
+        ]);
+
+        // Create a local recipient account
+        $recipientAccount = MailAccount::create([
+            'domain_id' => $this->domain->id,
+            'username' => 'siti',
+            'email' => 'siti@mybbs.id',
+            'display_name' => 'Siti Aminah',
+            'password' => Hash::make('Secret123!'),
+            'quota_bytes' => 1073741824,
+            'used_bytes' => 0,
+            'is_active' => true,
+        ]);
+        $recipientInbox = $recipientAccount->folders()->create([
+            'name' => 'Kotak Masuk',
+            'slug' => 'inbox',
+            'icon' => 'inbox',
+            'color' => '#2563EB',
+            'is_system' => true,
+        ]);
+
+        // Post forward request
+        $response = $this->actingAs($this->account)->post(route('webmail.send'), [
+            'to' => 'siti@mybbs.id',
+            'subject' => 'Fwd: Tagihan Invoice #1029',
+            'body_html' => '<p>Halo Bu Siti, tolong cek invoice ini.</p>',
+            'forward_attachment_ids' => [$attachment->id],
+        ]);
+
+        $response->assertRedirect(route('webmail.index', ['folder' => 'sent']));
+
+        // Assert sent email has attachment
+        $sentEmail = Email::where('mail_account_id', $this->account->id)
+            ->where('subject', 'Fwd: Tagihan Invoice #1029')
+            ->first();
+        $this->assertNotNull($sentEmail);
+        $this->assertTrue($sentEmail->has_attachments);
+        $this->assertEquals(1, $sentEmail->attachments()->count());
+        $this->assertEquals('invoice_1029.pdf', $sentEmail->attachments()->first()->filename);
+
+        // Assert recipient inbox received email WITH the attachment
+        $deliveredEmail = Email::where('mail_account_id', $recipientAccount->id)
+            ->where('subject', 'Fwd: Tagihan Invoice #1029')
+            ->first();
+        $this->assertNotNull($deliveredEmail);
+        $this->assertTrue($deliveredEmail->has_attachments);
+        $this->assertEquals(1, $deliveredEmail->attachments()->count());
+        $this->assertEquals('invoice_1029.pdf', $deliveredEmail->attachments()->first()->filename);
+        $this->assertTrue(file_exists($deliveredEmail->attachments()->first()->real_path));
+    }
 }

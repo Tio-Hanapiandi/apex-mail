@@ -48,6 +48,30 @@ class EmailAttachment extends Model
         // Normalize slashes
         $normalized = str_replace('\\', '/', $rawPath);
 
+        // 1b. Check if stored path contains 'storage/app/' or 'mail_attachments/' from another environment or previous host
+        if (preg_match('#(?:storage/app/|(?=mail_attachments/))(.*)$#i', $normalized, $matches)) {
+            $relative = ltrim($matches[1], '/');
+            if (!empty($relative)) {
+                try {
+                    $locPath = \Illuminate\Support\Facades\Storage::disk('local')->path($relative);
+                    if (file_exists($locPath)) {
+                        return $locPath;
+                    }
+                } catch (\Throwable $e) {}
+
+                $appPath = storage_path('app/' . $relative);
+                if (file_exists($appPath)) {
+                    return $appPath;
+                }
+            }
+        }
+
+        // 1c. Check directly under storage/app/mail_attachments by filename
+        $basenameCandidate = storage_path('app/mail_attachments/' . basename($normalized));
+        if (file_exists($basenameCandidate)) {
+            return $basenameCandidate;
+        }
+
         // 2. Check via Storage disks (handles both real storage and fake disks in tests)
         try {
             $pubDiskPath = \Illuminate\Support\Facades\Storage::disk('public')->path(ltrim($normalized, '/'));

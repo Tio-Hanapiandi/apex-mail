@@ -273,7 +273,7 @@ class WebmailController extends Controller
                     'name' => $file->getClientOriginalName(),
                     'mime' => $file->getClientMimeType(),
                     'size' => $file->getSize(),
-                    'path' => storage_path('app/' . $path),
+                    'path' => \Illuminate\Support\Facades\Storage::disk('local')->path($path),
                 ];
             }
         }
@@ -282,13 +282,24 @@ class WebmailController extends Controller
         if ($request->has('forward_attachment_ids') && is_array($request->input('forward_attachment_ids'))) {
             $existingAtts = EmailAttachment::whereIn('id', $request->input('forward_attachment_ids'))->get();
             foreach ($existingAtts as $ea) {
-                $diskPath = storage_path('app/' . $ea->storage_path);
-                if (file_exists($diskPath)) {
+                $diskPath = $ea->real_path;
+                if ($diskPath && file_exists($diskPath)) {
+                    // Create independent copy for the forwarded email attachment
+                    $storageFilename = \Illuminate\Support\Str::uuid()->toString() . '_' . preg_replace('/[^a-zA-Z0-9_\.-]/', '_', $ea->filename);
+                    $newRelative = 'mail_attachments/' . $storageFilename;
+
+                    try {
+                        \Illuminate\Support\Facades\Storage::disk('local')->put($newRelative, file_get_contents($diskPath));
+                        $destPath = \Illuminate\Support\Facades\Storage::disk('local')->path($newRelative);
+                    } catch (\Throwable $e) {
+                        $destPath = $diskPath;
+                    }
+
                     $attachments[] = [
                         'name' => $ea->filename,
-                        'mime' => $ea->content_type,
-                        'size' => $ea->size_bytes,
-                        'path' => $diskPath,
+                        'mime' => $ea->content_type ?: (@mime_content_type($destPath) ?: 'application/octet-stream'),
+                        'size' => file_exists($destPath) ? filesize($destPath) : $ea->size_bytes,
+                        'path' => $destPath,
                     ];
                 }
             }
