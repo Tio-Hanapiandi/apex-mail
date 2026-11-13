@@ -50,7 +50,10 @@ class AdminController extends Controller
         $totalAllocatedQuota = MailAccount::sum('quota_bytes');
         $totalUsedStorage = MailAccount::sum('used_bytes');
 
-        $activeRelay = SmtpRelay::where('is_default', true)->first() ?? SmtpRelay::first();
+        $activeRelaysCount = SmtpRelay::where('is_active', true)->count();
+        $activeRelay = SmtpRelay::where('is_active', true)->where('is_default', true)->first()
+            ?? SmtpRelay::where('is_active', true)->first()
+            ?? SmtpRelay::first();
 
         // Email traffic & queue statistics
         $emailsSentToday = Email::whereDate('sent_at', Carbon::today())->count();
@@ -80,6 +83,7 @@ class AdminController extends Controller
             'totalAllocatedQuota',
             'totalUsedStorage',
             'activeRelay',
+            'activeRelaysCount',
             'emailsSentToday',
             'totalEmails',
             'queueStats',
@@ -124,15 +128,69 @@ class AdminController extends Controller
     }
 
     /**
-     * View and configure SMTP Relays (Brevo, SES, etc).
+     * View and configure SMTP Relays (Brevo, SES, per-domain Smart Hosts, etc).
      */
-    public function relays()
+    public function relays(Request $request)
     {
-        $relays = SmtpRelay::with('domain')->get();
-        $domains = Domain::where('is_active', true)->get();
-        $activeRelay = SmtpRelay::where('is_default', true)->first() ?? $relays->first();
+        $relays = SmtpRelay::with('domain')->orderBy('domain_id', 'asc')->orderBy('name', 'asc')->get();
+        $domains = Domain::where('is_active', true)->orderBy('name', 'asc')->get();
 
-        return view('admin.relays', compact('relays', 'domains', 'activeRelay'));
+        $relayId = $request->query('relay_id', session('selected_relay_id'));
+        $activeRelay = $relayId ? SmtpRelay::with('domain')->find($relayId) : null;
+
+        if (!$activeRelay) {
+            $activeRelay = $relays->firstWhere('is_default', true) ?? $relays->first();
+        }
+
+        $activeRelaysCount = $relays->where('is_active', true)->count();
+        $domainRelaysCount = $relays->whereNotNull('domain_id')->where('is_active', true)->count();
+        $globalRelay = $relays->whereNull('domain_id')->where('is_active', true)->first();
+
+        return view('admin.relays', compact(
+            'relays',
+            'domains',
+            'activeRelay',
+            'activeRelaysCount',
+            'domainRelaysCount',
+            'globalRelay'
+        ));
+    }
+
+    /**
+     * Store new SMTP Relay configuration.
+     */
+    public function storeRelay(Request $request)
+    {
+        $validated = $request->validate([
+            'name' => 'required|string|max:100',
+            'provider' => 'required|string',
+            'host' => 'required|string',
+            'port' => 'required|integer',
+            'encryption' => 'nullable|string',
+            'username' => 'nullable|string',
+            'password' => 'nullable|string',
+            'sender_email' => 'nullable|email',
+            'sender_name' => 'nullable|string',
+            'domain_id' => 'nullable|exists:domains,id',
+        ]);
+
+        $validated['is_active'] = $request->has('is_active');
+        $validated['is_default'] = $request->has('is_default');
+        $validated['domain_id'] = $request->input('domain_id') ?: null;
+
+        if ($validated['is_default']) {
+            if ($validated['domain_id']) {
+                SmtpRelay::where('domain_id', $validated['domain_id'])->update(['is_default' => false]);
+            } else {
+                SmtpRelay::whereNull('domain_id')->update(['is_default' => false]);
+            }
+        }
+
+        $relay = SmtpRelay::create($validated);
+
+        return redirect()->route('admin.relays')
+            ->with('selected_relay_id', $relay->id)
+            ->with('success', "Konfigurasi relay '{$relay->name}' berhasil ditambahkan.");
     }
 
     /**
@@ -160,7 +218,15 @@ class AdminController extends Controller
         $validated['domain_id'] = $request->input('domain_id') ?: null;
 
         if ($validated['is_default']) {
-            SmtpRelay::where('id', '!=', $relay->id)->update(['is_default' => false]);
+            if ($validated['domain_id']) {
+                SmtpRelay::where('domain_id', $validated['domain_id'])
+                    ->where('id', '!=', $relay->id)
+                    ->update(['is_default' => false]);
+            } else {
+                SmtpRelay::whereNull('domain_id')
+                    ->where('id', '!=', $relay->id)
+                    ->update(['is_default' => false]);
+            }
         }
 
         // Only overwrite password if entered
@@ -171,7 +237,21 @@ class AdminController extends Controller
         $relay->update($validated);
 
         return redirect()->route('admin.relays')
+            ->with('selected_relay_id', $relay->id)
             ->with('success', "Konfigurasi relay {$relay->name} berhasil disimpan.");
+    }
+
+    /**
+     * Delete an SMTP Relay configuration.
+     */
+    public function destroyRelay($id)
+    {
+        $relay = SmtpRelay::findOrFail($id);
+        $name = $relay->name;
+        $relay->delete();
+
+        return redirect()->route('admin.relays')
+            ->with('success', "Profil relay '{$name}' berhasil dihapus.");
     }
 
     /**
@@ -187,10 +267,14 @@ class AdminController extends Controller
         $result = $this->relayService->testRelayConnection($relay, $request->input('test_email'));
 
         if ($result['success']) {
-            return redirect()->route('admin.relays')->with('success', $result['message']);
+            return redirect()->route('admin.relays')
+                ->with('selected_relay_id', $relay->id)
+                ->with('success', $result['message']);
         }
 
-        return redirect()->route('admin.relays')->with('error', $result['message']);
+        return redirect()->route('admin.relays')
+            ->with('selected_relay_id', $relay->id)
+            ->with('error', $result['message']);
     }
 
     /**

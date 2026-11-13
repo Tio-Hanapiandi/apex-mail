@@ -241,4 +241,175 @@ class DirectMxAndRelayTest extends TestCase
         }
         $this->assertTrue($hasDkimHeader, 'Message should contain DKIM-Signature header');
     }
+
+    public function test_multi_domain_relays_operate_independently_without_interference(): void
+    {
+        // 1. Create dedicated relay for domain MyBbs (domain A)
+        $relayA = SmtpRelay::create([
+            'domain_id' => $this->domainMyBbs->id,
+            'name' => 'MyBbs Relay A',
+            'provider' => 'standard',
+            'host' => 'smtp.relay-domain-a.com',
+            'port' => 587,
+            'encryption' => 'tls',
+            'is_active' => true,
+            'is_default' => true,
+        ]);
+
+        // 2. Create dedicated relay for domain Azkario (domain B)
+        $relayB = SmtpRelay::create([
+            'domain_id' => $this->domainAzkario->id,
+            'name' => 'Azkario Relay B',
+            'provider' => 'custom',
+            'host' => 'smtp.relay-domain-b.com',
+            'port' => 465,
+            'encryption' => 'ssl',
+            'is_active' => true,
+            'is_default' => true,
+        ]);
+
+        // 3. Verify domain A gets Relay A and domain B gets Relay B
+        $activeA = SmtpRelay::getActiveRelay($this->domainMyBbs->id);
+        $activeB = SmtpRelay::getActiveRelay($this->domainAzkario->id);
+
+        $this->assertNotNull($activeA);
+        $this->assertEquals('smtp.relay-domain-a.com', $activeA->host);
+        $this->assertEquals($relayA->id, $activeA->id);
+
+        $this->assertNotNull($activeB);
+        $this->assertEquals('smtp.relay-domain-b.com', $activeB->host);
+        $this->assertEquals($relayB->id, $activeB->id);
+
+        // 4. Update Relay B through Admin Controller (e.g. changing host or re-saving)
+        $response = $this->actingAs($this->admin)->put(route('admin.relays.update', $relayB->id), [
+            'name' => 'Azkario Relay B Updated',
+            'provider' => 'custom',
+            'host' => 'smtp.updated-relay-b.com',
+            'port' => 587,
+            'encryption' => 'tls',
+            'domain_id' => $this->domainAzkario->id,
+            'is_active' => '1',
+            'is_default' => '1',
+        ]);
+
+        $response->assertRedirect(route('admin.relays'));
+
+        // 5. CRUCIAL: Verify Relay A for domain A was NOT reset or deactivated
+        $relayA->refresh();
+        $this->assertTrue($relayA->is_active, 'Relay A must remain active');
+        $this->assertTrue($relayA->is_default, 'Relay A must remain default for its domain scope');
+        $this->assertEquals($this->domainMyBbs->id, $relayA->domain_id);
+
+        // 6. SmtpRelay::getActiveRelay for domain A still returns Relay A (not null / Direct MX)
+        $activeAAfter = SmtpRelay::getActiveRelay($this->domainMyBbs->id);
+        $this->assertNotNull($activeAAfter, 'Domain A must still use Relay A and not reset to Direct MX');
+        $this->assertEquals('smtp.relay-domain-a.com', $activeAAfter->host);
+
+        // 7. SmtpRelay::getActiveRelay for domain B returns updated Relay B
+        $activeBAfter = SmtpRelay::getActiveRelay($this->domainAzkario->id);
+        $this->assertNotNull($activeBAfter);
+        $this->assertEquals('smtp.updated-relay-b.com', $activeBAfter->host);
+    }
+
+    public function test_admin_can_store_new_relay_via_route(): void
+    {
+        $response = $this->actingAs($this->admin)->post(route('admin.relays.store'), [
+            'name' => 'New Dedicated Relay B',
+            'provider' => 'standard',
+            'host' => 'smtp.new-relay.com',
+            'port' => 587,
+            'encryption' => 'tls',
+            'domain_id' => $this->domainAzkario->id,
+            'is_active' => '1',
+            'is_default' => '1',
+        ]);
+
+        $response->assertRedirect(route('admin.relays'));
+        $this->assertDatabaseHas('smtp_relays', [
+            'name' => 'New Dedicated Relay B',
+            'domain_id' => $this->domainAzkario->id,
+            'host' => 'smtp.new-relay.com',
+            'is_active' => true,
+        ]);
+    }
+
+    public function test_admin_can_delete_relay(): void
+    {
+        $relay = SmtpRelay::create([
+            'domain_id' => $this->domainAzkario->id,
+            'name' => 'Temporary Relay',
+            'provider' => 'standard',
+            'host' => 'smtp.temp.com',
+            'port' => 587,
+            'is_active' => true,
+        ]);
+
+        $response = $this->actingAs($this->admin)->delete(route('admin.relays.destroy', $relay->id));
+        $response->assertRedirect(route('admin.relays'));
+
+        $this->assertDatabaseMissing('smtp_relays', [
+            'id' => $relay->id,
+        ]);
+    }
+
+    public function test_sending_emails_from_different_domains_uses_respective_relays(): void
+    {
+        $relayA = SmtpRelay::create([
+            'domain_id' => $this->domainMyBbs->id,
+            'name' => 'Relay Domain A',
+            'provider' => 'standard',
+            'host' => 'smtp.domain-a.com',
+            'port' => 587,
+            'is_active' => true,
+            'is_default' => true,
+        ]);
+
+        $relayB = SmtpRelay::create([
+            'domain_id' => $this->domainAzkario->id,
+            'name' => 'Relay Domain B',
+            'provider' => 'custom',
+            'host' => 'smtp.domain-b.com',
+            'port' => 465,
+            'is_active' => true,
+            'is_default' => true,
+        ]);
+
+        $nullTransport = new \Symfony\Component\Mailer\Transport\NullTransport();
+        $fakeMailer = new \Symfony\Component\Mailer\Mailer($nullTransport);
+
+        $mockService = $this->getMockBuilder(MailRelayService::class)
+            ->onlyMethods(['buildSymfonyMailer'])
+            ->getMock();
+
+        $relaysUsed = [];
+        $mockService->expects($this->exactly(2))
+            ->method('buildSymfonyMailer')
+            ->willReturnCallback(function ($relay) use (&$relaysUsed, $fakeMailer) {
+                $relaysUsed[] = $relay->host;
+                return $fakeMailer;
+            });
+
+        // Send email 1 from domain A
+        $res1 = $mockService->sendEmail(
+            $this->senderRecruitment,
+            'external1@test.com',
+            'Test Domain A Outbound',
+            'Body domain A'
+        );
+        $this->assertTrue($res1['success']);
+
+        // Send email 2 from domain B
+        $res2 = $mockService->sendEmail(
+            $this->admin,
+            'external2@test.com',
+            'Test Domain B Outbound',
+            'Body domain B'
+        );
+        $this->assertTrue($res2['success']);
+
+        // Verify that email 1 used relay A, and email 2 used relay B
+        $this->assertCount(2, $relaysUsed);
+        $this->assertEquals('smtp.domain-a.com', $relaysUsed[0]);
+        $this->assertEquals('smtp.domain-b.com', $relaysUsed[1]);
+    }
 }

@@ -10,7 +10,7 @@
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-200">
             <div>
                 <h1 class="text-xl font-bold text-slate-900 tracking-tight">Konfigurasi Pengiriman Outbound & SMTP Relay</h1>
-                <p class="text-xs text-slate-500 mt-0.5">Kelola jalur pengiriman email keluar baik via Direct MX (DNS Port 25) maupun External SMTP Relay / Smart Host seperti pada Zimbra MTA.</p>
+                <p class="text-xs text-slate-500 mt-0.5">Kelola jalur pengiriman email keluar baik via Direct MX (DNS Port 25) maupun External SMTP Relay / Smart Host independen per-domain.</p>
             </div>
 
             <!-- Sub Navigasi Admin -->
@@ -43,18 +43,29 @@
         </div>
 
         <!-- Outbound Architecture Status Banner -->
-        @if($activeRelay && $activeRelay->is_active)
+        @if(($activeRelaysCount ?? 0) > 0)
             <div class="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 sm:p-5 flex items-start space-x-3.5">
                 <div class="w-9 h-9 rounded-xl bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-sm shadow-emerald-500/20">
                     <i data-lucide="share-2" class="w-5 h-5"></i>
                 </div>
                 <div class="flex-1 min-w-0">
-                    <div class="flex items-center space-x-2">
+                    <div class="flex flex-wrap items-center gap-2">
                         <span class="text-xs font-bold text-emerald-900 uppercase tracking-wider">Mode Pengiriman Aktif</span>
-                        <span class="px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-800 font-bold text-[10px]">External SMTP Relay / Smart Host</span>
+                        <span class="px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-800 font-bold text-[10px]">
+                            External SMTP Relay / Smart Host ({{ $activeRelaysCount }} Profil Aktif)
+                        </span>
                     </div>
                     <p class="text-xs text-emerald-800 mt-1 leading-relaxed">
-                        Email keluar dialirkan melalui server relay eksternal <strong class="font-mono">{{ $activeRelay->host }}:{{ $activeRelay->port }}</strong>. Mode ini cocok jika server ISP memblokir port 25 atau domain membutuhkan upstream smart host terpusat.
+                        Sistem memiliki <strong>{{ $activeRelaysCount }} profil relay aktif</strong>.
+                        @if(($domainRelaysCount ?? 0) > 0)
+                            Sebanyak <strong>{{ $domainRelaysCount }} domain</strong> menggunakan relay terdedikasi masing-masing.
+                        @endif
+                        @if($globalRelay)
+                            Domain tanpa relay khusus dialirkan melalui Global Smart Host (<span class="font-mono font-medium">{{ $globalRelay->host }}:{{ $globalRelay->port }}</span>).
+                        @else
+                            Domain tanpa relay khusus akan dikirim via <strong>Direct MX Delivery (DNS Port 25)</strong>.
+                        @endif
+                        Setiap domain beroperasi secara mandiri tanpa saling mengganggu atau menimpa pengaturan domain lain.
                     </p>
                 </div>
             </div>
@@ -75,20 +86,168 @@
             </div>
         @endif
 
-        <!-- Kartu Utama Konfigurasi SMTP Relay & Smart Host -->
-        @if($activeRelay)
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Daftar Profil SMTP Relay yang Tersedia -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div class="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div class="flex items-center space-x-2.5">
+                    <div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-xs">
+                        <i data-lucide="server" class="w-4 h-4"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-sm font-bold text-slate-800">Daftar Profil SMTP Relay & Domain Scope</h2>
+                        <p class="text-[11px] text-slate-400">Atur relay independen untuk masing-masing domain (misal Brevo untuk domain-a, Mailgun untuk domain-b, atau Global).</p>
+                    </div>
+                </div>
 
-                <!-- Kolom Kiri: Form Konfigurasi Relay (Persis seperti Zimbra Relay MTA) -->
+                <div>
+                    <button type="button" onclick="openAddRelayModal()" class="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-sm shadow-blue-500/25 transition-all flex items-center space-x-1.5">
+                        <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+                        <span>Tambah Profil Relay</span>
+                    </button>
+                </div>
+            </div>
+
+            @if($relays->isEmpty())
+                <div class="p-8 text-center space-y-3">
+                    <div class="w-12 h-12 rounded-2xl bg-slate-50 text-slate-400 mx-auto flex items-center justify-center">
+                        <i data-lucide="inbox" class="w-6 h-6"></i>
+                    </div>
+                    <p class="text-xs font-medium text-slate-600">Belum ada profil SMTP Relay yang tersimpan.</p>
+                    <p class="text-[11px] text-slate-400 max-w-sm mx-auto">Sistem saat ini mengirimkan email secara langsung menggunakan Direct MX Delivery (DNS Port 25).</p>
+                    <button type="button" onclick="openAddRelayModal()" class="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 text-xs font-semibold">
+                        <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+                        <span>Buat Profil Relay Sekarang</span>
+                    </button>
+                </div>
+            @else
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs">
+                        <thead class="bg-slate-50/80 text-slate-500 uppercase tracking-wider text-[10px] border-b border-slate-100">
+                            <tr>
+                                <th class="px-4 py-3 font-semibold">Profil & Provider</th>
+                                <th class="px-4 py-3 font-semibold">Cakupan Domain</th>
+                                <th class="px-4 py-3 font-semibold">Host & Port</th>
+                                <th class="px-4 py-3 font-semibold">Status</th>
+                                <th class="px-4 py-3 font-semibold">Uji Terakhir</th>
+                                <th class="px-4 py-3 font-semibold text-right">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100 text-slate-700">
+                            @foreach($relays as $rel)
+                                @php
+                                    $isSelected = $activeRelay && $activeRelay->id === $rel->id;
+                                @endphp
+                                <tr class="hover:bg-slate-50/80 transition-colors {{ $isSelected ? 'bg-blue-50/40' : '' }}">
+                                    <td class="px-4 py-3">
+                                        <div class="flex items-center space-x-2">
+                                            @if($isSelected)
+                                                <span class="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
+                                            @endif
+                                            <div>
+                                                <div class="font-bold text-slate-900 flex items-center space-x-1.5">
+                                                    <span>{{ $rel->name }}</span>
+                                                    @if($rel->is_default)
+                                                        <span class="px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 text-[9px] font-bold">Default</span>
+                                                    @endif
+                                                </div>
+                                                <span class="text-[10px] text-slate-400 capitalize">{{ $rel->provider }}</span>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        @if($rel->domain)
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200 font-semibold text-[11px] font-mono">
+                                                <i data-lucide="layers" class="w-3 h-3 mr-1"></i>
+                                                {{ $rel->domain->name }}
+                                            </span>
+                                        @else
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 border border-purple-200 font-semibold text-[11px]">
+                                                <i data-lucide="globe" class="w-3 h-3 mr-1"></i>
+                                                Semua Domain (Global Smart Host)
+                                            </span>
+                                        @endif
+                                    </td>
+                                    <td class="px-4 py-3 font-mono text-[11px] text-slate-600">
+                                        {{ $rel->host }}:{{ $rel->port }}
+                                        <span class="text-slate-400 uppercase text-[10px]">({{ $rel->encryption ?: 'none' }})</span>
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        @if($rel->is_active)
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5"></span>
+                                                Aktif
+                                            </span>
+                                        @else
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
+                                                <span class="w-1.5 h-1.5 rounded-full bg-slate-400 mr-1.5"></span>
+                                                Nonaktif
+                                            </span>
+                                        @endif
+                                    </td>
+                                    <td class="px-4 py-3 text-[11px]">
+                                        @if($rel->last_tested_at)
+                                            @if($rel->last_test_status === 'success')
+                                                <span class="text-emerald-700 font-medium flex items-center">
+                                                    <i data-lucide="check" class="w-3.5 h-3.5 mr-1 text-emerald-500"></i>
+                                                    Terhubung ({{ $rel->last_tested_at->diffForHumans() }})
+                                                </span>
+                                            @else
+                                                <span class="text-rose-700 font-medium flex items-center">
+                                                    <i data-lucide="alert-circle" class="w-3.5 h-3.5 mr-1 text-rose-500"></i>
+                                                    Gagal ({{ $rel->last_tested_at->diffForHumans() }})
+                                                </span>
+                                            @endif
+                                        @else
+                                            <span class="text-slate-400">Belum diuji</span>
+                                        @endif
+                                    </td>
+                                    <td class="px-4 py-3 text-right">
+                                        <div class="flex items-center justify-end space-x-1.5">
+                                            <a href="{{ route('admin.relays', ['relay_id' => $rel->id]) }}#editRelaySection" 
+                                               class="px-2.5 py-1 rounded-lg text-xs font-semibold transition-all {{ $isSelected ? 'bg-blue-600 text-white shadow-xs' : 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
+                                                {{ $isSelected ? 'Sedang Dipilih' : 'Edit / Pilih' }}
+                                            </a>
+                                            <button type="button" 
+                                                    onclick="confirmDeleteRelay({{ $rel->id }}, '{{ addslashes($rel->name) }}')"
+                                                    class="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors" 
+                                                    title="Hapus Profil Relay">
+                                                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                                            </button>
+                                            <form id="deleteRelayForm_{{ $rel->id }}" action="{{ route('admin.relays.destroy', $rel->id) }}" method="POST" class="hidden">
+                                                @csrf
+                                                @method('DELETE')
+                                            </form>
+                                        </div>
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            @endif
+        </div>
+
+        <!-- Kartu Detail Konfigurasi & Uji Relay Terpilih -->
+        @if($activeRelay)
+            <div id="editRelaySection" class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+                <!-- Kolom Kiri: Form Konfigurasi Relay -->
                 <div class="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-5">
-                    <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-slate-100">
                         <div class="flex items-center space-x-2.5">
                             <div class="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs">
                                 <i data-lucide="send" class="w-4 h-4"></i>
                             </div>
                             <div>
-                                <h3 class="text-sm font-bold text-slate-800">{{ $activeRelay->name }}</h3>
-                                <p class="text-[11px] text-slate-400">Konfigurasi Relay MTA / Smart Host Eksternal</p>
+                                <h3 class="text-sm font-bold text-slate-800">Edit Profil: {{ $activeRelay->name }}</h3>
+                                <p class="text-[11px] text-slate-400">
+                                    Cakupan: 
+                                    @if($activeRelay->domain)
+                                        <strong class="text-blue-600 font-mono">Domain {{ $activeRelay->domain->name }}</strong>
+                                    @else
+                                        <strong class="text-purple-600">Semua Domain (Global Smart Host)</strong>
+                                    @endif
+                                </p>
                             </div>
                         </div>
 
@@ -128,7 +287,7 @@
                                         </option>
                                     @endforeach
                                 </select>
-                                <p class="text-[10px] text-slate-400 mt-1">Pilih domain tertentu jika ingin relay hanya diterapkan pada domain tersebut.</p>
+                                <p class="text-[10px] text-slate-400 mt-1">Pilih domain tertentu jika relay ini hanya untuk domain tersebut. Domain lain tidak akan terpengaruh.</p>
                             </div>
                         </div>
 
@@ -200,7 +359,7 @@
                                 <div>
                                     <span class="text-xs font-bold text-slate-800">Aktifkan External SMTP Relay (Smart Host)</span>
                                     <p class="text-[11px] text-slate-500 leading-normal">
-                                        Bila dicentang, seluruh email keluar diteruskan melalui host relay di atas. Bila <strong>tidak dicentang</strong>, sistem secara otomatis beralih ke mode <strong>Direct MX Delivery (Kirim Langsung)</strong>.
+                                        Bila dicentang, email keluar untuk cakupan domain ini diteruskan melalui host relay di atas. Bila <strong>tidak dicentang</strong>, domain ini akan beralih ke Direct MX Delivery (atau Global Relay jika ada).
                                     </p>
                                 </div>
                             </label>
@@ -209,7 +368,7 @@
                                 <input type="checkbox" name="is_default" value="1" {{ $activeRelay->is_default ? 'checked' : '' }}
                                        class="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 mt-0.5">
                                 <div>
-                                    <span class="text-xs font-semibold text-slate-700">Jadikan Relay Utama (Default)</span>
+                                    <span class="text-xs font-semibold text-slate-700">Jadikan Relay Utama (Default) untuk domain ini</span>
                                 </div>
                             </label>
                         </div>
@@ -255,10 +414,10 @@
                     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3">
                         <div class="flex items-center space-x-2">
                             <i data-lucide="zap" class="w-4 h-4 text-amber-500"></i>
-                            <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider">Uji External SMTP Relay</h3>
+                            <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider">Uji Relay: {{ $activeRelay->name }}</h3>
                         </div>
                         <p class="text-xs text-slate-500 leading-relaxed">
-                            Kirimkan email diagnostik melalui host relay eksternal di samping untuk menguji kredensial.
+                            Kirimkan email diagnostik melalui host relay <strong class="font-mono text-slate-700">{{ $activeRelay->host }}:{{ $activeRelay->port }}</strong> untuk memverifikasi autentikasi.
                         </p>
 
                         <form action="{{ route('admin.relays.test', $activeRelay->id) }}" method="POST" class="space-y-3">
@@ -309,8 +468,8 @@
                             <span>Catatan Deliverability & SPF</span>
                         </div>
                         <p class="text-[11px] text-blue-700 leading-relaxed">
-                            Pastikan DNS SPF record di domain publik Anda telah mencantumkan IP server pengirim atau record MX domain:
-                            <code class="block font-mono bg-white/80 p-1.5 rounded mt-1 text-[10px] text-slate-800 border border-blue-200">v=spf1 a mx ~all</code>
+                            Pastikan DNS SPF record di masing-masing domain publik Anda telah mencantumkan host relay yang digunakan:
+                            <code class="block font-mono bg-white/80 p-1.5 rounded mt-1 text-[10px] text-slate-800 border border-blue-200">v=spf1 a mx include:{{ $activeRelay->host }} ~all</code>
                         </p>
                     </div>
 
@@ -322,28 +481,251 @@
     </div>
 </div>
 
+<!-- Modal Tambah Profil SMTP Relay Baru -->
+<div id="addRelayModal" class="hidden fixed inset-0 z-50 items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs transition-opacity duration-200">
+    <div class="w-full max-w-xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden transform transition-all" onclick="event.stopPropagation()">
+        <div class="flex items-center justify-between p-5 border-b border-slate-100 bg-slate-50/50">
+            <div class="flex items-center space-x-2.5">
+                <div class="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs">
+                    <i data-lucide="plus-circle" class="w-4 h-4"></i>
+                </div>
+                <div>
+                    <h3 class="text-sm font-bold text-slate-800">Tambah Profil SMTP Relay Baru</h3>
+                    <p class="text-[11px] text-slate-400">Konfigurasi relay khusus domain tertentu atau fallback global.</p>
+                </div>
+            </div>
+            <button type="button" onclick="closeAddRelayModal()" class="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors">
+                <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
+        </div>
+
+        <form action="{{ route('admin.relays.store') }}" method="POST" class="p-5 space-y-4">
+            @csrf
+
+            <!-- Preset Buttons -->
+            <div class="flex items-center justify-between p-2.5 bg-blue-50/60 border border-blue-100 rounded-xl text-xs">
+                <span class="text-[11px] font-semibold text-blue-900">Isi Cepat dari Preset:</span>
+                <div class="flex items-center space-x-1.5">
+                    <button type="button" onclick="setModalPreset('tls')" class="px-2 py-0.5 rounded bg-white text-blue-700 font-semibold border border-blue-200 hover:bg-blue-50 text-[11px]">
+                        TLS (587)
+                    </button>
+                    <button type="button" onclick="setModalPreset('ssl')" class="px-2 py-0.5 rounded bg-white text-slate-700 font-medium border border-slate-200 hover:bg-slate-50 text-[11px]">
+                        SSL (465)
+                    </button>
+                    <button type="button" onclick="setModalPreset('mta')" class="px-2 py-0.5 rounded bg-white text-slate-700 font-medium border border-slate-200 hover:bg-slate-50 text-[11px]">
+                        MTA (25)
+                    </button>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">Nama Profil Relay:</label>
+                    <input type="text" id="modalRelayName" name="name" value="SMTP Relay Baru" required
+                           class="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white font-medium">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">Cakupan Domain (Domain Scope):</label>
+                    <select id="modalRelayDomainId" name="domain_id" class="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white font-medium">
+                        <option value="">Semua Domain (Global Smart Host)</option>
+                        @foreach($domains as $dom)
+                            <option value="{{ $dom->id }}">Khusus Domain: {{ $dom->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                <div class="sm:col-span-2">
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">Relay Host / Smart Host:</label>
+                    <input type="text" id="modalRelayHost" name="host" required placeholder="smtp-relay.brevo.com"
+                           class="w-full px-3 py-1.5 text-xs font-mono bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">Port:</label>
+                    <input type="number" id="modalRelayPort" name="port" value="587" required
+                           class="w-full px-3 py-1.5 text-xs font-mono bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white">
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">Tipe Provider:</label>
+                    <select id="modalRelayProvider" name="provider" class="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white">
+                        <option value="smarthost">Smart Host Relay</option>
+                        <option value="standard" selected>Standard SMTP Relay</option>
+                        <option value="custom">Custom External MTA</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">Enkripsi:</label>
+                    <select id="modalRelayEncryption" name="encryption" class="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white">
+                        <option value="tls" selected>STARTTLS (Direkomendasikan)</option>
+                        <option value="ssl">SSL/TLS Wrapper (465)</option>
+                        <option value="">Tanpa Enkripsi (Plain)</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">Username / Auth ID:</label>
+                    <input type="text" name="username" placeholder="Username (opsional)"
+                           class="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white">
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-slate-600 mb-1">Password / SMTP Key:</label>
+                <input type="password" name="password" placeholder="Password atau API SMTP Key"
+                       class="w-full px-3 py-1.5 text-xs font-mono bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white">
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">Sender Email Fallback:</label>
+                    <input type="email" name="sender_email" placeholder="no-reply@domain.com"
+                           class="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">Sender Name Fallback:</label>
+                    <input type="text" name="sender_name" value="ApexMail System" placeholder="ApexMail System"
+                           class="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white">
+                </div>
+            </div>
+
+            <div class="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                <label class="flex items-center space-x-2.5 cursor-pointer">
+                    <input type="checkbox" name="is_active" value="1" checked class="rounded text-blue-600 focus:ring-blue-500 w-4 h-4">
+                    <span class="text-xs font-bold text-slate-800">Aktifkan Profil Relay Ini Langsung</span>
+                </label>
+                <label class="flex items-center space-x-2.5 cursor-pointer">
+                    <input type="checkbox" name="is_default" value="1" checked class="rounded text-blue-600 focus:ring-blue-500 w-4 h-4">
+                    <span class="text-xs font-medium text-slate-700">Jadikan Relay Utama (Default) untuk cakupan domain yang dipilih</span>
+                </label>
+            </div>
+
+            <div class="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
+                <button type="button" onclick="closeAddRelayModal()" class="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
+                    Batal
+                </button>
+                <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-sm shadow-blue-500/25 transition-all flex items-center space-x-1.5">
+                    <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                    <span>Simpan Profil Relay</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
 @push('scripts')
 <script>
     function setStandardTlsPreset() {
-        document.getElementById('relayName').value = 'Primary SMTP Relay';
-        document.getElementById('relayProvider').value = 'standard';
-        document.getElementById('relayPort').value = '587';
-        document.getElementById('relayEncryption').value = 'tls';
+        const nameInput = document.getElementById('relayName');
+        if (nameInput) nameInput.value = 'Primary SMTP Relay';
+        const providerInput = document.getElementById('relayProvider');
+        if (providerInput) providerInput.value = 'standard';
+        const portInput = document.getElementById('relayPort');
+        if (portInput) portInput.value = '587';
+        const encInput = document.getElementById('relayEncryption');
+        if (encInput) encInput.value = 'tls';
     }
 
     function setSecureSslPreset() {
-        document.getElementById('relayName').value = 'Secure SMTP Relay';
-        document.getElementById('relayProvider').value = 'custom';
-        document.getElementById('relayPort').value = '465';
-        document.getElementById('relayEncryption').value = 'ssl';
+        const nameInput = document.getElementById('relayName');
+        if (nameInput) nameInput.value = 'Secure SMTP Relay';
+        const providerInput = document.getElementById('relayProvider');
+        if (providerInput) providerInput.value = 'custom';
+        const portInput = document.getElementById('relayPort');
+        if (portInput) portInput.value = '465';
+        const encInput = document.getElementById('relayEncryption');
+        if (encInput) encInput.value = 'ssl';
     }
 
     function setMtaPort25Preset() {
-        document.getElementById('relayName').value = 'Internal Smart Host MTA';
-        document.getElementById('relayProvider').value = 'smarthost';
-        document.getElementById('relayPort').value = '25';
-        document.getElementById('relayEncryption').value = 'tls';
+        const nameInput = document.getElementById('relayName');
+        if (nameInput) nameInput.value = 'Internal Smart Host MTA';
+        const providerInput = document.getElementById('relayProvider');
+        if (providerInput) providerInput.value = 'smarthost';
+        const portInput = document.getElementById('relayPort');
+        if (portInput) portInput.value = '25';
+        const encInput = document.getElementById('relayEncryption');
+        if (encInput) encInput.value = 'tls';
     }
+
+    function openAddRelayModal() {
+        const modal = document.getElementById('addRelayModal');
+        if (modal) {
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            if (typeof lucide !== 'undefined') {
+                lucide.createIcons();
+            }
+        }
+    }
+
+    function closeAddRelayModal() {
+        const modal = document.getElementById('addRelayModal');
+        if (modal) {
+            modal.classList.remove('flex');
+            modal.classList.add('hidden');
+        }
+    }
+
+    function setModalPreset(type) {
+        const name = document.getElementById('modalRelayName');
+        const host = document.getElementById('modalRelayHost');
+        const port = document.getElementById('modalRelayPort');
+        const prov = document.getElementById('modalRelayProvider');
+        const enc = document.getElementById('modalRelayEncryption');
+
+        if (type === 'tls') {
+            if (name) name.value = 'Brevo / TLS Relay';
+            if (host && !host.value) host.value = 'smtp-relay.brevo.com';
+            if (port) port.value = '587';
+            if (prov) prov.value = 'standard';
+            if (enc) enc.value = 'tls';
+        } else if (type === 'ssl') {
+            if (name) name.value = 'Secure SSL Relay';
+            if (host && !host.value) host.value = 'smtp.gmail.com';
+            if (port) port.value = '465';
+            if (prov) prov.value = 'custom';
+            if (enc) enc.value = 'ssl';
+        } else if (type === 'mta') {
+            if (name) name.value = 'Internal Smart Host';
+            if (port) port.value = '25';
+            if (prov) prov.value = 'smarthost';
+            if (enc) enc.value = 'tls';
+        }
+    }
+
+    function confirmDeleteRelay(id, name) {
+        if (typeof showConfirmModal === 'function') {
+            showConfirmModal(
+                'Hapus Profil Relay?',
+                `Apakah Anda yakin ingin menghapus profil relay "${name}"? Domain yang menggunakan profil ini akan beralih ke Direct MX Delivery (atau Global Smart Host jika tersedia).`,
+                () => {
+                    const form = document.getElementById('deleteRelayForm_' + id);
+                    if (form) form.submit();
+                },
+                'Ya, Hapus Relay',
+                true
+            );
+        } else {
+            if (confirm(`Hapus profil relay "${name}"?`)) {
+                const form = document.getElementById('deleteRelayForm_' + id);
+                if (form) form.submit();
+            }
+        }
+    }
+
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            closeAddRelayModal();
+        }
+    });
 </script>
 @endpush
 @endsection

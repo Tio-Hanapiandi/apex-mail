@@ -42,11 +42,25 @@ class SmtpRelay extends Model
 
     /**
      * Get the active relay (either domain-specific or global).
+     * Accepts domainId (int), Domain instance, or domain name string.
      */
-    public static function getActiveRelay(?int $domainId = null): ?self
+    public static function getActiveRelay($domain = null): ?self
     {
+        $domainId = null;
+        if (is_numeric($domain)) {
+            $domainId = (int) $domain;
+        } elseif (is_string($domain) && !empty($domain)) {
+            $domainId = Domain::where('name', strtolower(trim($domain)))->value('id');
+        } elseif ($domain instanceof Domain) {
+            $domainId = $domain->id;
+        }
+
         if ($domainId) {
             $domainRelay = self::where('domain_id', $domainId)
+                ->where('is_active', true)
+                ->where('is_default', true)
+                ->first()
+                ?? self::where('domain_id', $domainId)
                 ->where('is_active', true)
                 ->first();
             if ($domainRelay) {

@@ -133,9 +133,9 @@
                 @if($activeRelay && $activeRelay->is_active)
                     <div class="flex items-center space-x-1.5">
                         <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                        <span class="text-sm font-bold text-slate-900">External Relay Aktif</span>
+                        <span class="text-sm font-bold text-slate-900">{{ ($activeRelaysCount ?? 1) > 1 ? 'Multi-Domain Relay (' . $activeRelaysCount . ')' : 'External Relay Aktif' }}</span>
                     </div>
-                    <p class="text-[11px] text-slate-400 font-mono truncate">{{ $activeRelay->host . ':' . $activeRelay->port }}</p>
+                    <p class="text-[11px] text-slate-400 font-mono truncate">{{ $activeRelay->host . ':' . $activeRelay->port }}{{ ($activeRelaysCount ?? 1) > 1 ? ' +' . ($activeRelaysCount - 1) . ' domain' : '' }}</p>
                 @else
                     <div class="flex items-center space-x-1.5">
                         <span class="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></span>

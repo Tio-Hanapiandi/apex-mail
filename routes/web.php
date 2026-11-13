@@ -102,7 +102,9 @@ Route::prefix('admin')->name('admin.')->middleware(['auth', 'admin'])->group(fun
 
     // SMTP Relays & Direct MX Outbound Delivery
     Route::get('/relays', [AdminController::class, 'relays'])->name('relays');
+    Route::post('/relays', [AdminController::class, 'storeRelay'])->name('relays.store');
     Route::put('/relays/{id}', [AdminController::class, 'updateRelay'])->name('relays.update');
+    Route::delete('/relays/{id}', [AdminController::class, 'destroyRelay'])->name('relays.destroy');
     Route::post('/relays/{id}/test', [AdminController::class, 'testRelay'])->name('relays.test');
     Route::post('/relays/test-direct', [AdminController::class, 'testDirectMx'])->name('relays.test-direct');
 

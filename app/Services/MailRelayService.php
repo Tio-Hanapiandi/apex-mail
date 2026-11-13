@@ -398,7 +398,8 @@ class MailRelayService
         $bcc = [],
         $customReplyTo = null
     ): array {
-        $relay = $relay ?? SmtpRelay::getActiveRelay($sender->domain_id);
+        $domainScope = $sender->domain_id ?? (str_contains($sender->email, '@') ? substr(strrchr($sender->email, '@'), 1) : null);
+        $relay = $relay ?? SmtpRelay::getActiveRelay($domainScope);
 
         $parsedTo = $this->parseRecipients($to);
         $parsedCc = $this->parseRecipients($cc);
@@ -645,7 +646,8 @@ class MailRelayService
             ];
         }
 
-        $relay = SmtpRelay::getActiveRelay($sender->domain_id);
+        $domainScope = $sender->domain_id ?? (str_contains($sender->email, '@') ? substr(strrchr($sender->email, '@'), 1) : null);
+        $relay = SmtpRelay::getActiveRelay($domainScope);
         $localDomain = $sender->domain->name ?? 'apexmail.local';
 
         try {
@@ -850,7 +852,8 @@ class MailRelayService
             ];
         }
 
-        $relay = SmtpRelay::getActiveRelay($account->domain_id);
+        $domainScope = $account->domain_id ?? (str_contains($account->email, '@') ? substr(strrchr($account->email, '@'), 1) : null);
+        $relay = SmtpRelay::getActiveRelay($domainScope);
 
         try {
             $fromEmail = ($relay && $relay->is_active && $relay->sender_email)
